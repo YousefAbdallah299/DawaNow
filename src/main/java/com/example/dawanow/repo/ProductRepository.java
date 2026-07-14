@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
+    boolean existsByCategoryId(Long categoryId);
+
     Page<Product> findByCategoryId(Long categoryId, Pageable pageable);
 
     Page<Product> findByNameContainingIgnoreCaseOrArabicNameContainingIgnoreCaseOrScientificNameContainingIgnoreCase(

@@ -1,6 +1,8 @@
 package com.example.dawanow.dtos.request;
 
+import jakarta.validation.constraints.Size;
+
 public record UpdateCategoryRequest(
-        String name
+        @Size(max = 255) String name
 ) {
 }
