@@ -9,6 +9,7 @@ import com.example.dawanow.entity.Product;
 import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.repo.CategoryRepository;
 import com.example.dawanow.repo.ProductRepository;
+import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -63,14 +64,14 @@ public class ProductService {
         Category category = findCategoryById(request.categoryId());
 
         Product product = new Product();
-        product.setName(request.name().trim());
-        product.setArabicName(normalizeNullable(request.arabicName()));
-        product.setScientificName(normalizeNullable(request.scientificName()));
-        product.setPrice(request.price());
-        product.setImageUrl(normalizeNullable(request.imageUrl()));
+        product.setName(requireText(request.name(), "Product name"));
+        product.setArabicName(requireText(request.arabicName(), "Arabic name"));
+        product.setScientificName(requireText(request.scientificName(), "Scientific name"));
+        product.setPrice(requirePositivePrice(request.price()));
+        product.setImageUrl(requireText(request.imageUrl(), "Image URL"));
         product.setCategory(category);
-        product.setCompany(request.company().trim());
-        product.setRoute(normalizeNullable(request.route()));
+        product.setCompany(requireText(request.company(), "Product company"));
+        product.setRoute(requireText(request.route(), "Product route"));
 
         return toResponse(productRepository.save(product));
     }
@@ -82,16 +83,16 @@ public class ProductService {
             product.setName(requireText(request.name(), "Product name"));
         }
         if (request.arabicName() != null) {
-            product.setArabicName(normalizeNullable(request.arabicName()));
+            product.setArabicName(requireText(request.arabicName(), "Arabic name"));
         }
         if (request.scientificName() != null) {
-            product.setScientificName(normalizeNullable(request.scientificName()));
+            product.setScientificName(requireText(request.scientificName(), "Scientific name"));
         }
         if (request.price() != null) {
-            product.setPrice(request.price());
+            product.setPrice(requirePositivePrice(request.price()));
         }
         if (request.imageUrl() != null) {
-            product.setImageUrl(normalizeNullable(request.imageUrl()));
+            product.setImageUrl(requireText(request.imageUrl(), "Image URL"));
         }
         if (request.categoryId() != null) {
             product.setCategory(findCategoryById(request.categoryId()));
@@ -100,7 +101,7 @@ public class ProductService {
             product.setCompany(requireText(request.company(), "Product company"));
         }
         if (request.route() != null) {
-            product.setRoute(normalizeNullable(request.route()));
+            product.setRoute(requireText(request.route(), "Product route"));
         }
 
         return toResponse(product);
@@ -136,19 +137,18 @@ public class ProductService {
         );
     }
 
-    private String normalizeNullable(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-
-        return value.trim();
-    }
-
     private String requireText(String value, String fieldName) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(fieldName + " cannot be blank");
         }
 
         return value.trim();
+    }
+
+    private BigDecimal requirePositivePrice(BigDecimal price) {
+        if (price == null || price.signum() <= 0) {
+            throw new IllegalArgumentException("Product price must be positive");
+        }
+        return price;
     }
 }

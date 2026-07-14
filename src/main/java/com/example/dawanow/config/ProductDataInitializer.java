@@ -8,11 +8,14 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +36,19 @@ public class ProductDataInitializer implements ApplicationRunner {
     private static final String DATASET_PATH = "data/products.tsv";
     private static final String EXPECTED_HEADER =
             "name\tarabicName\tscientificName\tprice\timageUrl\tcategoryName\tcompany\troute";
+    private static final Set<String> VALID_ROUTES = Set.of(
+            "EAR",
+            "EFF",
+            "EYE",
+            "INJECTION",
+            "MOUTH",
+            "ORAL.LIQUID",
+            "ORAL.SOLID",
+            "RECTAL",
+            "SPRAY",
+            "TOPICAL"
+    );
+    private static final Set<String> NULL_LIKE_VALUES = Set.of(".", "N/A", "NA", "NONE", "NULL", "UNKNOWN");
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
@@ -48,7 +64,7 @@ public class ProductDataInitializer implements ApplicationRunner {
         List<ProductSeed> seeds = readSeeds();
         Map<String, Category> categories = loadCategories(seeds);
         List<Product> products = seeds.stream()
-                .map(seed -> toProduct(seed, categories.get(seed.categoryName())))
+                .map(seed -> toProduct(seed, categories.get(categoryKey(seed.categoryName()))))
                 .toList();
 
         productRepository.saveAll(products);
@@ -58,6 +74,7 @@ public class ProductDataInitializer implements ApplicationRunner {
     private List<ProductSeed> readSeeds() throws IOException {
         ClassPathResource dataset = new ClassPathResource(DATASET_PATH);
         List<ProductSeed> seeds = new ArrayList<>();
+        Set<ProductKey> productKeys = new HashSet<>();
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(dataset.getInputStream(), StandardCharsets.UTF_8))) {
@@ -73,10 +90,18 @@ public class ProductDataInitializer implements ApplicationRunner {
                 if (line.isBlank()) {
                     continue;
                 }
-                seeds.add(parseLine(line, lineNumber));
+                ProductSeed seed = parseLine(line, lineNumber);
+                ProductKey key = new ProductKey(seed.name().toUpperCase(Locale.ROOT), seed.price());
+                if (!productKeys.add(key)) {
+                    throw new IllegalStateException("Duplicate product dataset row at line " + lineNumber);
+                }
+                seeds.add(seed);
             }
         }
 
+        if (seeds.isEmpty()) {
+            throw new IllegalStateException("Product dataset is empty");
+        }
         return seeds;
     }
 
@@ -86,32 +111,50 @@ public class ProductDataInitializer implements ApplicationRunner {
             throw new IllegalStateException("Invalid product dataset row at line " + lineNumber);
         }
 
+        String name = required(values[0], "name", 500, lineNumber);
+        String arabicName = required(values[1], "arabicName", 500, lineNumber);
+        String scientificName = required(values[2], "scientificName", 1000, lineNumber);
+        BigDecimal price = parsePrice(values[3], lineNumber);
+        String imageUrl = required(values[4], "imageUrl", 1000, lineNumber);
+        validateImageUrl(imageUrl, lineNumber);
+        String categoryName = required(values[5], "categoryName", 255, lineNumber);
+        String company = required(values[6], "company", 500, lineNumber);
+        String route = required(values[7], "route", 100, lineNumber);
+        if (!VALID_ROUTES.contains(route)) {
+            throw invalidField("route", lineNumber);
+        }
+
         return new ProductSeed(
-                values[0],
-                nullable(values[1]),
-                nullable(values[2]),
-                new BigDecimal(values[3]),
-                nullable(values[4]),
-                values[5],
-                values[6],
-                nullable(values[7])
+                name,
+                arabicName,
+                scientificName,
+                price,
+                imageUrl,
+                categoryName,
+                company,
+                route
         );
     }
 
     private Map<String, Category> loadCategories(List<ProductSeed> seeds) {
         Map<String, Category> categories = new HashMap<>();
-        categoryRepository.findAll().forEach(category -> categories.put(category.getName(), category));
+        categoryRepository.findAll().forEach(category -> {
+            Category duplicate = categories.putIfAbsent(categoryKey(category.getName()), category);
+            if (duplicate != null) {
+                throw new IllegalStateException("Duplicate category name in database: " + category.getName());
+            }
+        });
 
         Set<String> missingNames = new LinkedHashSet<>();
         for (ProductSeed seed : seeds) {
-            if (!categories.containsKey(seed.categoryName())) {
+            if (!categories.containsKey(categoryKey(seed.categoryName()))) {
                 missingNames.add(seed.categoryName());
             }
         }
 
         List<Category> missingCategories = missingNames.stream().map(this::newCategory).toList();
         categoryRepository.saveAll(missingCategories)
-                .forEach(category -> categories.put(category.getName(), category));
+                .forEach(category -> categories.put(categoryKey(category.getName()), category));
         return categories;
     }
 
@@ -134,8 +177,50 @@ public class ProductDataInitializer implements ApplicationRunner {
         return product;
     }
 
-    private String nullable(String value) {
-        return value.isBlank() ? null : value;
+    private String required(String value, String fieldName, int maxLength, int lineNumber) {
+        String normalized = value.trim();
+        if (normalized.isEmpty()
+                || normalized.length() > maxLength
+                || NULL_LIKE_VALUES.contains(normalized.toUpperCase(Locale.ROOT))) {
+            throw invalidField(fieldName, lineNumber);
+        }
+        return normalized;
+    }
+
+    private BigDecimal parsePrice(String value, int lineNumber) {
+        try {
+            BigDecimal price = new BigDecimal(value);
+            if (price.signum() <= 0 || price.scale() > 2 || price.precision() > 12) {
+                throw invalidField("price", lineNumber);
+            }
+            return price;
+        } catch (NumberFormatException exception) {
+            throw invalidField("price", lineNumber);
+        }
+    }
+
+    private void validateImageUrl(String value, int lineNumber) {
+        try {
+            URI uri = URI.create(value);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+                throw invalidField("imageUrl", lineNumber);
+            }
+        } catch (IllegalArgumentException exception) {
+            throw invalidField("imageUrl", lineNumber);
+        }
+    }
+
+    private String categoryKey(String name) {
+        return name.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private IllegalStateException invalidField(String fieldName, int lineNumber) {
+        return new IllegalStateException(
+                "Invalid product dataset field '" + fieldName + "' at line " + lineNumber
+        );
+    }
+
+    private record ProductKey(String name, BigDecimal price) {
     }
 
     private record ProductSeed(

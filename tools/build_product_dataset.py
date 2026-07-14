@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from pathlib import Path
 NON_MEDICINE_CLASS = re.compile(
     r"(?:SKIN\s*CARE|HAIR\s*CARE|BODY\s*CARE|PERSONAL\s*CARE|COSMETIC|"
     r"MULTI\s*VITAMIN|VITAMINS?|MINERAL|SUPPLEMENT|NUTRITION|"
-    r"BABY\s*(?:FOOD|MILK|FORMULA|CARE)|INFANT\s*FORMULA|"
+    r"BABY\s*(?:FOOD|MILK|FORMULA|CARE)|INFANT\s*FORMULA|MILK\s*PRODUCTS?|"
     r"SHAMPOO|CONDITIONER|SOAP|CLEANSER|MOISTURI[ZS]|SUN\s*(?:SCRE+N|BLOCK)|"
     r"MASSAGE|TOOTH|MOUTH\s*WASH|DEODORANT|PERFUME|MAKEUP|DIAPER|"
     r"WEIGHT\s*(?:GAIN|LOSS)|SEXUAL\s*LUBRICANT|EYE\s*CONTOUR|ANTI\s*AGING|"
@@ -36,11 +37,57 @@ NON_MEDICINE_CLASS = re.compile(
     re.IGNORECASE,
 )
 
+NON_MEDICINE_CLASS_EXACT = {
+    "AMINO ACID",
+    "AMINO ACIDS",
+    "BONE CARE",
+    "DRINKS",
+    "EXTRA CARE MILK",
+    "GENERAL TONIC",
+    "HAIR LOTION",
+    "HEALING TOPICAL",
+    "HYPO-ALLERGENIC MILK",
+    "JOINT CARE",
+    "JOINTS CARE",
+    "LACTOSE FREE MILK",
+    "LUBRICANT",
+    "OMEGA 3",
+    "OMEGA-3",
+    "PROSTATE CARE",
+    "PROSTATE SUPPORT",
+    "PURIFIED WATER",
+    "SCAR THERAPY",
+    "SWEETENER",
+}
+
+CATEGORY_REPLACEMENTS = {
+    "BLEEDDING": "BLEEDING",
+    "CENTERAL": "CENTRAL",
+    "CHENNEL": "CHANNEL",
+    "DECINGESTANT": "DECONGESTANT",
+    "INCOTINENCE": "INCONTINENCE",
+    "INHANCER": "ENHANCER",
+    "INHBITOR": "INHIBITOR",
+    "IMMUNTY": "IMMUNITY",
+    "STEROI": "STEROID",
+}
+
+CATEGORY_ALIASES = {
+    "ANTI HYPERTENSIVE": "ANTI-HYPERTENSIVE",
+    "ANTHELMINTIC": "ANTIHELMINTHIC",
+    "ANTIBIOTIC.FIRST GENERATION CEPHALOSPORIN": "ANTIBIOTIC.CEPHALOSPORIN.FIRST-GENERATION",
+    "ANTIDIARRHOEAL": "ANTIDIARRHEAL",
+    "ANTIGLUCOMA": "ANTIGLAUCOMA",
+    "ANTIHISTAMINE": "ANTI-HISTAMINE",
+    "ANTIHYPERTENSIVE": "ANTI-HYPERTENSIVE",
+    "ANTIVIRAL": "ANTI-VIRAL",
+}
+
 UNAVAILABLE_NAME = re.compile(r"\((?:CANCELLED|N/A)\)", re.IGNORECASE)
 NON_MEDICINE_NAME = re.compile(
     r"(?:SUN\s*SCRE+N|SUN\s*BLOCK|EYE\s*CONTOUR|INFANT\s*FORMULA|"
-    r"BABY.*\bMILK\b|INTIMATE.*(?:WASH|GEL)|VAG(?:INAL|\.)?\s*(?:WASH|DOU?CH(?:E)?)|"
-    r"WHITENING|LIGHTENING|\bSUPPLEMENT\b)",
+    r"BABY.*\bMILK\b|INTIMATE.*(?:WASH|GEL)|"
+    r"WHITENING|LIGHTENING|\bSUPPLEMENT\b|\bMILK\s+FORMULA\b)",
     re.IGNORECASE,
 )
 NON_MEDICINE_MANUFACTURER = re.compile(
@@ -89,6 +136,20 @@ INGREDIENT_NOISE = {
 
 DOSAGE_PATTERN = re.compile(r"\b(\d+(?:\.\d+)?)\s*(MCG|MG|GM|G|ML|IU)\b", re.IGNORECASE)
 ODOO_PLACEHOLDER_SHA256 = "4e5ac0ca1d07f42ec2b4a85170601a9e4d6188d39cc06db851eb06a5f5880579"
+VALID_ROUTES = {
+    "EAR",
+    "EFF",
+    "EYE",
+    "INJECTION",
+    "MOUTH",
+    "ORAL.LIQUID",
+    "ORAL.SOLID",
+    "RECTAL",
+    "SPRAY",
+    "TOPICAL",
+}
+ROUTE_ALIASES = {"SOAP": "TOPICAL"}
+MAX_PRICE = Decimal("9999999999.99")
 
 
 @dataclass(frozen=True)
@@ -284,6 +345,49 @@ def clean(value: str | None, max_length: int) -> str:
     return value[:max_length]
 
 
+def canonical_category(value: str | None) -> str:
+    category = re.sub(r"\s+", " ", clean(value, 255)).upper()
+    category = re.sub(r"\s*\.\s*", ".", category)
+    category = re.sub(r"\.{2,}", ".", category)
+    category = category.strip(" .")
+    for misspelling, correction in CATEGORY_REPLACEMENTS.items():
+        category = re.sub(rf"\b{misspelling}\b", correction, category)
+    return CATEGORY_ALIASES.get(category, category)
+
+
+def canonical_route(value: str | None) -> str:
+    route = re.sub(r"\s+", "", clean(value, 100)).upper()
+    return ROUTE_ALIASES.get(route, route)
+
+
+def valid_price(value: str | None) -> str:
+    try:
+        price = Decimal(clean(value, 32))
+    except InvalidOperation:
+        return ""
+
+    if not price.is_finite() or price <= 0 or price > MAX_PRICE:
+        return ""
+    return format(price.quantize(Decimal("0.01")), "f")
+
+
+def is_non_medicine_product(category: str, scientific_name: str) -> bool:
+    if category == "ANTI-RHEUMATIC.OSTEOARTHRITIS.ANABOLIC AGENTS" and re.search(
+        r"\b(?:COLLAGEN|CHONDROITIN|GLUCOSAMINE)\b", scientific_name, re.IGNORECASE
+    ):
+        return True
+    if category in {"IMMUNITY ENHANCER", "IMMUNITY BOOSTER"}:
+        return "BACTERIAL LYSATE" not in scientific_name.upper()
+    if category == "ANTIOXIDANT":
+        medicinal_ingredients = ("L-CARNITINE", "THIOCTIC ACID")
+        return not any(ingredient in scientific_name.upper() for ingredient in medicinal_ingredients)
+    if category == "NASAL DECONGESTANT" and re.search(
+        r"\b(?:SEA\s*WATER|SEAWATER|SEA SALT|ECTOIN)\b", scientific_name, re.IGNORECASE
+    ):
+        return True
+    return False
+
+
 def load_products(
     egypt_csv: Path,
     egypt_image_index: dict[str, list[ImageCandidate]],
@@ -296,15 +400,23 @@ def load_products(
     with egypt_csv.open("r", encoding="utf-8-sig", newline="") as source:
         for row in csv.DictReader(source):
             stats["source_rows"] += 1
-            category = re.sub(r"\s+", " ", clean(row.get("drug_class"), 255)).upper()
-            if not category or category == "." or NON_MEDICINE_CLASS.search(category):
+            category = canonical_category(row.get("drug_class"))
+            if (
+                not category
+                or category in NON_MEDICINE_CLASS_EXACT
+                or NON_MEDICINE_CLASS.search(category)
+                or category.startswith("SUPPORTS ")
+            ):
                 stats["filtered_non_medicine"] += 1
                 continue
 
             name = clean(row.get("commercial_name_en"), 500)
-            price = clean(row.get("price_egp"), 32)
+            arabic_name = clean(row.get("commercial_name_ar"), 500)
+            scientific_name = clean(row.get("scientific_name"), 1000)
+            price = valid_price(row.get("price_egp"))
             company = clean(row.get("manufacturer"), 500)
-            if not name or not price or not company:
+            route = canonical_route(row.get("route"))
+            if not name or not arabic_name or not scientific_name or not price or not company or route not in VALID_ROUTES:
                 stats["filtered_incomplete"] += 1
                 continue
             if UNAVAILABLE_NAME.search(name):
@@ -316,10 +428,8 @@ def load_products(
             if NON_MEDICINE_MANUFACTURER.search(company):
                 stats["filtered_non_medicine_manufacturer"] += 1
                 continue
-
-            scientific_name = clean(row.get("scientific_name"), 1000)
-            if not scientific_name:
-                stats["filtered_missing_scientific_name"] += 1
+            if is_non_medicine_product(category, scientific_name):
+                stats["filtered_non_medicine_product"] += 1
                 continue
 
             duplicate_key = (normalize_ascii(name), price)
@@ -335,13 +445,13 @@ def load_products(
             products.append(
                 {
                     "name": name,
-                    "arabicName": clean(row.get("commercial_name_ar"), 500),
+                    "arabicName": arabic_name,
                     "scientificName": scientific_name,
                     "price": price,
                     "imageUrl": clean(image_url, 1000),
                     "categoryName": category,
                     "company": company,
-                    "route": clean(row.get("route"), 100),
+                    "route": route,
                 }
             )
 
@@ -349,8 +459,8 @@ def load_products(
     return products, stats
 
 
-def verify_dawatech_images(products: list[dict[str, str]], stats: dict[str, int]) -> None:
-    targets = [product for product in products if "demov2.egypt.dawatech.com" in product["imageUrl"]]
+def verify_images(products: list[dict[str, str]], stats: dict[str, int]) -> None:
+    targets = [product for product in products if product["imageUrl"]]
 
     def inspect(product: dict[str, str]) -> tuple[dict[str, str], str]:
         request = urllib.request.Request(
@@ -361,9 +471,12 @@ def verify_dawatech_images(products: list[dict[str, str]], stats: dict[str, int]
             try:
                 with urllib.request.urlopen(request, timeout=20) as response:
                     body = response.read()
-                if hashlib.sha256(body).hexdigest() == ODOO_PLACEHOLDER_SHA256:
+                    content_type = response.headers.get_content_type()
+                if "demov2.egypt.dawatech.com" in product["imageUrl"] and (
+                    hashlib.sha256(body).hexdigest() == ODOO_PLACEHOLDER_SHA256
+                ):
                     return product, "placeholder"
-                if not body:
+                if not body or not content_type.startswith("image/"):
                     return product, "unreachable"
                 return product, "valid"
             except Exception:
@@ -375,16 +488,20 @@ def verify_dawatech_images(products: list[dict[str, str]], stats: dict[str, int]
         for future in as_completed(futures):
             product, result = future.result()
             if result == "valid":
-                stats["verified_dawatech_images"] += 1
+                stats["verified_images"] += 1
                 continue
 
             product["imageUrl"] = ""
-            stats[f"removed_dawatech_{result}"] += 1
+            stats[f"removed_image_{result}"] += 1
 
 
-def write_tsv(products: list[dict[str, str]], output: Path, limit: int) -> int:
-    products.sort(key=lambda product: (not bool(product["imageUrl"]), product["name"]))
+def write_tsv(products: list[dict[str, str]], output: Path, limit: int, allow_missing_images: bool) -> int:
+    if not allow_missing_images:
+        products = [product for product in products if product["imageUrl"]]
+    products.sort(key=lambda product: product["name"])
     selected = products[:limit] if limit > 0 else products
+    if not selected:
+        raise ValueError("No products matched the requested dataset rules")
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with output.open("w", encoding="utf-8", newline="") as destination:
@@ -403,7 +520,8 @@ def main() -> None:
     parser.add_argument("--netmeds-csv", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--limit", type=int, default=10_000)
-    parser.add_argument("--verify-dawatech-images", action="store_true")
+    parser.add_argument("--allow-missing-images", action="store_true")
+    parser.add_argument("--skip-image-verification", action="store_true")
     args = parser.parse_args()
 
     dawatech_index = build_dawatech_index(args.dawatech_sitemap)
@@ -414,9 +532,9 @@ def main() -> None:
             egypt_image_index[key].extend(candidates)
     netmeds_index = build_netmeds_index(args.netmeds_csv)
     products, stats = load_products(args.egypt_csv, egypt_image_index, netmeds_index)
-    if args.verify_dawatech_images:
-        verify_dawatech_images(products, stats)
-    written = write_tsv(products, args.output, args.limit)
+    if not args.skip_image_verification:
+        verify_images(products, stats)
+    written = write_tsv(products, args.output, args.limit, args.allow_missing_images)
 
     print(f"Dawatech image candidates: {sum(map(len, dawatech_index.values()))}")
     print(f"Shopify image candidates: {sum(map(len, shopify_index.values()))}")
@@ -424,7 +542,7 @@ def main() -> None:
     for key in sorted(stats):
         print(f"{key}: {stats[key]}")
     print(f"written_rows: {written}")
-    print(f"written_with_images: {sum(bool(product['imageUrl']) for product in products[:written])}")
+    print(f"written_with_images: {written if not args.allow_missing_images else sum(bool(product['imageUrl']) for product in products[:written])}")
 
 
 if __name__ == "__main__":
