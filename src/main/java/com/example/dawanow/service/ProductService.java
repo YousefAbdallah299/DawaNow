@@ -10,6 +10,7 @@ import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.repo.CategoryRepository;
 import com.example.dawanow.repo.ProductRepository;
 import java.math.BigDecimal;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -21,12 +22,22 @@ import org.springframework.util.StringUtils;
 @Transactional
 public class ProductService {
 
+    private static final Set<String> SORTABLE_FIELDS = Set.of(
+            "id",
+            "name",
+            "arabicName",
+            "scientificName",
+            "price",
+            "company",
+            "route"
+    );
+
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
 
     @Transactional(readOnly = true)
     public PaginatedResponse<ProductResponse> getAllProducts(Pageable pageable) {
-        return PaginatedResponse.from(productRepository.findAll(pageable).map(this::toResponse));
+        return PaginatedResponse.from(productRepository.findAll(validateSort(pageable)).map(this::toResponse));
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +52,7 @@ public class ProductService {
                         searchTerm,
                         searchTerm,
                         searchTerm,
-                        pageable
+                        validateSort(pageable)
                 )
                 .map(this::toResponse));
     }
@@ -52,7 +63,9 @@ public class ProductService {
             throw new ResourceNotFoundException("Category not found");
         }
 
-        return PaginatedResponse.from(productRepository.findByCategoryId(categoryId, pageable).map(this::toResponse));
+        return PaginatedResponse.from(
+                productRepository.findByCategoryId(categoryId, validateSort(pageable)).map(this::toResponse)
+        );
     }
 
     @Transactional(readOnly = true)
@@ -150,5 +163,14 @@ public class ProductService {
             throw new IllegalArgumentException("Product price must be positive");
         }
         return price;
+    }
+
+    private Pageable validateSort(Pageable pageable) {
+        pageable.getSort().forEach(order -> {
+            if (!SORTABLE_FIELDS.contains(order.getProperty())) {
+                throw new IllegalArgumentException("Invalid product sort field: " + order.getProperty());
+            }
+        });
+        return pageable;
     }
 }

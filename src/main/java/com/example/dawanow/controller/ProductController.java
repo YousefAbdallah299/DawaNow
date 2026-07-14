@@ -8,6 +8,7 @@ import com.example.dawanow.dtos.response.ProductResponse;
 import com.example.dawanow.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -31,7 +32,7 @@ public class ProductController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts(
-            @PageableDefault(size = 20) Pageable pageable
+            @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.getAllProducts(pageable)));
     }
@@ -44,7 +45,7 @@ public class ProductController {
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> searchProducts(
             @RequestParam(required = false) String keyword,
-            @PageableDefault(size = 20) Pageable pageable
+            @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.searchProducts(keyword, pageable)));
     }
@@ -52,7 +53,7 @@ public class ProductController {
     @GetMapping("/category/{categoryId}")
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getProductsByCategory(
             @PathVariable Long categoryId,
-            @PageableDefault(size = 20) Pageable pageable
+            @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.getProductsByCategory(categoryId, pageable)));
     }

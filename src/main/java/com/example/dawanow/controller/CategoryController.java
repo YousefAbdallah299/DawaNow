@@ -8,6 +8,7 @@ import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +31,7 @@ public class CategoryController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<PaginatedResponse<CategoryResponse>>> getAllCategories(
-            @PageableDefault(size = 20) Pageable pageable
+            @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
         return ResponseEntity.ok(ApiResponse.success("Categories fetched", categoryService.getAllCategories(pageable)));
     }
