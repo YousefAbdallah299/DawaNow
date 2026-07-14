@@ -30,7 +30,6 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts(
             @PageableDefault(size = 20) Pageable pageable
     ) {
@@ -38,13 +37,11 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
     public ResponseEntity<ApiResponse<ProductResponse>> getProductById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Product fetched", productService.getProductById(id)));
     }
 
     @GetMapping("/search")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> searchProducts(
             @RequestParam(required = false) String keyword,
             @PageableDefault(size = 20) Pageable pageable
@@ -53,7 +50,6 @@ public class ProductController {
     }
 
     @GetMapping("/category/{categoryId}")
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getProductsByCategory(
             @PathVariable Long categoryId,
             @PageableDefault(size = 20) Pageable pageable

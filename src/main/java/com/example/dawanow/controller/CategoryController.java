@@ -29,7 +29,6 @@ public class CategoryController {
     private final CategoryService categoryService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
     public ResponseEntity<ApiResponse<PaginatedResponse<CategoryResponse>>> getAllCategories(
             @PageableDefault(size = 20) Pageable pageable
     ) {
