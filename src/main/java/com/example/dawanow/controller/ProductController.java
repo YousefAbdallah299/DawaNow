@@ -6,6 +6,13 @@ import com.example.dawanow.dtos.response.ApiResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.dtos.response.ProductResponse;
 import com.example.dawanow.service.ProductService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.security.SecurityScheme;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
@@ -26,11 +33,36 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/products")
 @RequiredArgsConstructor
+@Tag(name = "Products", description = "Browse the medicine catalog and manage products")
+@SecurityScheme(
+        name = "basicAuth",
+        description = "HTTP Basic authentication for protected endpoints",
+        type = SecuritySchemeType.HTTP,
+        scheme = "basic"
+)
 public class ProductController {
 
     private final ProductService productService;
 
     @GetMapping
+    @Operation(
+            summary = "Get all products",
+            description = "Public endpoint that returns products in a paginated response. "
+                    + "Use page and size for pagination. Sort supports id, name, arabicName, scientificName, "
+                    + "price, company, and route with asc or desc, for example sort=price,desc. "
+                    + "Repeat sort to order by multiple fields."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Products fetched successfully with pagination metadata"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid pagination or sort value"
+            )
+    })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts(
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
@@ -38,12 +70,51 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<ProductResponse>> getProductById(@PathVariable Long id) {
+    @Operation(
+            summary = "Get product by ID",
+            description = "Public endpoint that returns one product with its medicine details and category."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Product fetched successfully"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Product not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<ProductResponse>> getProductById(
+            @Parameter(description = "Product ID", example = "1", required = true)
+            @PathVariable Long id
+    ) {
         return ResponseEntity.ok(ApiResponse.success("Product fetched", productService.getProductById(id)));
     }
 
     @GetMapping("/search")
+    @Operation(
+            summary = "Search products",
+            description = "Public endpoint that searches product name, Arabic name, and scientific name. "
+                    + "A missing or blank keyword returns all products. Results are paginated and support the same "
+                    + "sort fields as the get-all endpoint."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Matching products fetched successfully with pagination metadata"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid pagination or sort value"
+            )
+    })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> searchProducts(
+            @Parameter(
+                    description = "Text matched against product, Arabic, and scientific names",
+                    example = "Panadol"
+            )
             @RequestParam(required = false) String keyword,
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
@@ -51,7 +122,28 @@ public class ProductController {
     }
 
     @GetMapping("/category/{categoryId}")
+    @Operation(
+            summary = "Get products by category",
+            description = "Public endpoint that returns the products belonging to a category. "
+                    + "Results are paginated and support the same sort fields as the get-all endpoint."
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Category products fetched successfully with pagination metadata"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Invalid pagination or sort value"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Category not found"
+            )
+    })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getProductsByCategory(
+            @Parameter(description = "Category ID", example = "1", required = true)
             @PathVariable Long categoryId,
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
@@ -60,14 +152,84 @@ public class ProductController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<ProductResponse>> createProduct(@Valid @RequestBody CreateProductRequest request) {
+    @Operation(
+            summary = "Create a product",
+            description = "Admin only. Creates a medicine product and links it to an existing category. "
+                    + "The route must be one of EAR, EFF, EYE, INJECTION, MOUTH, ORAL.LIQUID, ORAL.SOLID, "
+                    + "RECTAL, SPRAY, or TOPICAL.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Product created successfully and returned"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Request validation failed"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Administrator role is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Category not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<ProductResponse>> createProduct(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Complete product information",
+                    required = true
+            )
+            @Valid @RequestBody CreateProductRequest request
+    ) {
         return ResponseEntity.ok(ApiResponse.success("Product created", productService.createProduct(request)));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
+    @Operation(
+            summary = "Update a product",
+            description = "Admin only. Partially updates a product; omitted fields keep their current values. "
+                    + "When categoryId is supplied, it must identify an existing category.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Product updated successfully and returned"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Request validation failed"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Administrator role is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Product or supplied category not found"
+            )
+    })
     public ResponseEntity<ApiResponse<ProductResponse>> updateProduct(
+            @Parameter(description = "Product ID", example = "1", required = true)
             @PathVariable Long id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Product fields to update",
+                    required = true
+            )
             @Valid @RequestBody UpdateProductRequest request
     ) {
         return ResponseEntity.ok(ApiResponse.success("Product updated", productService.updateProduct(id, request)));
@@ -75,7 +237,34 @@ public class ProductController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> deleteProduct(@PathVariable Long id) {
+    @Operation(
+            summary = "Delete a product",
+            description = "Admin only. Permanently deletes an existing product.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Product deleted successfully; response data is null"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Administrator role is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Product not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<Void>> deleteProduct(
+            @Parameter(description = "Product ID", example = "1", required = true)
+            @PathVariable Long id
+    ) {
         productService.deleteProduct(id);
         return ResponseEntity.ok(ApiResponse.success("Product deleted"));
     }
