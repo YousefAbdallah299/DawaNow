@@ -9,6 +9,9 @@ import com.example.dawanow.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,6 +45,15 @@ import org.springframework.web.bind.annotation.RestController;
 )
 public class ProductController {
 
+    private static final String INVALID_SORT_EXAMPLE =
+            "{\"success\":false,\"message\":\"Invalid product sort field: unsupportedField\",\"data\":null}";
+    private static final String PRODUCT_NOT_FOUND_EXAMPLE =
+            "{\"success\":false,\"message\":\"Product not found\",\"data\":null}";
+    private static final String CATEGORY_NOT_FOUND_EXAMPLE =
+            "{\"success\":false,\"message\":\"Category not found\",\"data\":null}";
+    private static final String VALIDATION_ERROR_EXAMPLE =
+            "{\"success\":false,\"message\":\"price must be greater than 0\",\"data\":null}";
+
     private final ProductService productService;
 
     @GetMapping
@@ -60,8 +72,14 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value"
+                    description = "Invalid pagination or sort value",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_SORT_EXAMPLE)
+                    )
             )
+
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts(
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
@@ -82,7 +100,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Product not found"
+                    description = "Product not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = PRODUCT_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<ProductResponse>> getProductById(
@@ -107,7 +130,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value"
+                    description = "Invalid pagination or sort value",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_SORT_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> searchProducts(
@@ -135,11 +163,21 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value"
+                    description = "Invalid pagination or sort value",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_SORT_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Category not found"
+                    description = "Category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getProductsByCategory(
@@ -167,7 +205,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Request validation failed"
+                    description = "Request validation failed",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = VALIDATION_ERROR_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -179,7 +222,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Category not found"
+                    description = "Category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<ProductResponse>> createProduct(
@@ -208,7 +256,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Request validation failed"
+                    description = "Request validation failed",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = VALIDATION_ERROR_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -220,7 +273,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Product or supplied category not found"
+                    description = "Product or supplied category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = PRODUCT_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<ProductResponse>> updateProduct(
@@ -258,7 +316,12 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Product not found"
+                    description = "Product not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = PRODUCT_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<Void>> deleteProduct(

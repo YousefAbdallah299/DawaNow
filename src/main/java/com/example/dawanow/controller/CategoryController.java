@@ -8,6 +8,9 @@ import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.service.CategoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +36,15 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Categories", description = "Browse and manage product categories")
 public class CategoryController {
 
+    private static final String INVALID_SORT_EXAMPLE =
+            "{\"success\":false,\"message\":\"Invalid category sort value\",\"data\":null}";
+    private static final String CATEGORY_NOT_FOUND_EXAMPLE =
+            "{\"success\":false,\"message\":\"Category not found\",\"data\":null}";
+    private static final String INVALID_NAME_EXAMPLE =
+            "{\"success\":false,\"message\":\"Category name already exists\",\"data\":null}";
+    private static final String CATEGORY_IN_USE_EXAMPLE =
+            "{\"success\":false,\"message\":\"Category cannot be deleted while it has products\",\"data\":null}";
+
     private final CategoryService categoryService;
 
     @GetMapping
@@ -50,7 +62,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value"
+                    description = "Invalid pagination or sort value",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_SORT_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<CategoryResponse>>> getAllCategories(
@@ -82,7 +99,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Category not found"
+                    description = "Category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<CategoryResponse>> getCategoryById(
@@ -107,7 +129,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Name is invalid or already exists"
+                    description = "Name is invalid or already exists",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_NAME_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -144,7 +171,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Name is invalid or already exists"
+                    description = "Name is invalid or already exists",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = INVALID_NAME_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -156,7 +188,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Category not found"
+                    description = "Category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<CategoryResponse>> updateCategory(
@@ -186,7 +223,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Category still has products and cannot be deleted"
+                    description = "Category still has products and cannot be deleted",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_IN_USE_EXAMPLE)
+                    )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "401",
@@ -198,7 +240,12 @@ public class CategoryController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "Category not found"
+                    description = "Category not found",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = CATEGORY_NOT_FOUND_EXAMPLE)
+                    )
             )
     })
     public ResponseEntity<ApiResponse<Void>> deleteCategory(
