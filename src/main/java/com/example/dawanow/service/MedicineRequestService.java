@@ -8,8 +8,6 @@ import com.example.dawanow.entity.Customer;
 import com.example.dawanow.entity.MedicineRequest;
 import com.example.dawanow.entity.Pharmacist;
 import com.example.dawanow.entity.Pharmacy;
-import com.example.dawanow.entity.Product;
-import com.example.dawanow.entity.RequestItem;
 import com.example.dawanow.entity.RequestStatus;
 import com.example.dawanow.entity.User;
 import com.example.dawanow.entity.UserRole;
@@ -17,18 +15,11 @@ import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.mapper.MedicineRequestMapper;
 import com.example.dawanow.repo.MedicineRequestRepository;
 import com.example.dawanow.repo.PharmacyRepository;
-import com.example.dawanow.repo.ProductRepository;
-import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
