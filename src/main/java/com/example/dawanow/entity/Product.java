@@ -1,5 +1,6 @@
 package com.example.dawanow.entity;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -82,4 +83,7 @@ public class Product {
 
     @OneToMany(mappedBy = "product")
     private List<RequestItem> requestItems = new ArrayList<>();
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ProductTranslation> translations = new ArrayList<>();
 }

@@ -10,12 +10,16 @@ public record UpdateProductRequest(
         @Size(max = 500) @Pattern(regexp = ".*\\S.*") String name,
         @Size(max = 500) @Pattern(regexp = ".*\\S.*") String arabicName,
         @Size(max = 1000) @Pattern(regexp = ".*\\S.*") String scientificName,
+        @Size(max = 1000) @Pattern(regexp = ".*\\S.*") String arabicScientificName,
         @Positive @Digits(integer = 10, fraction = 2) BigDecimal price,
         @Size(max = 1000) @Pattern(regexp = "https://\\S+") String imageUrl,
         @Positive Long categoryId,
+        @Size(max = 255) @Pattern(regexp = ".*\\S.*") String arabicCategoryName,
         @Size(max = 500) @Pattern(regexp = ".*\\S.*") String company,
+        @Size(max = 500) @Pattern(regexp = ".*\\S.*") String arabicCompany,
         @Size(max = 100) @Pattern(
                 regexp = "EAR|EFF|EYE|INJECTION|MOUTH|ORAL\\.LIQUID|ORAL\\.SOLID|RECTAL|SPRAY|TOPICAL"
-        ) String route
+        ) String route,
+        @Size(max = 100) @Pattern(regexp = ".*\\S.*") String arabicRoute
 ) {
 }
