@@ -1,5 +1,6 @@
 package com.example.dawanow.entity;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -39,11 +40,6 @@ public class Product {
     @Size(max = 500)
     private String name;
 
-    @Column(name = "arabic_name", nullable = false, length = 500)
-    @NotBlank
-    @Size(max = 500)
-    private String arabicName;
-
     @Column(name = "scientific_name", nullable = false, length = 1000)
     @NotBlank
     @Size(max = 1000)
@@ -82,4 +78,7 @@ public class Product {
 
     @OneToMany(mappedBy = "product")
     private List<RequestItem> requestItems = new ArrayList<>();
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ProductTranslation> translations = new ArrayList<>();
 }

@@ -60,7 +60,9 @@ public class ProductController {
     @Operation(
             summary = "Get all products",
             description = "Public endpoint that returns products in a paginated response. "
-                    + "Use page and size for pagination. Sort supports id, name, arabicName, scientificName, "
+                    + "Set lang=ar to return Arabic product data; the default language is English. "
+                    + "Name, scientific name, category, company, and route use their translations. "
+                    + "Use page and size for pagination. Sort supports id, name, scientificName, "
                     + "price, company, and route with asc or desc, for example sort=price,desc. "
                     + "Repeat sort to order by multiple fields."
     )
@@ -72,7 +74,7 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value",
+                    description = "Invalid pagination, sort, or language value",
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
@@ -82,21 +84,30 @@ public class ProductController {
 
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts(
+            @Parameter(description = "Response language: en or ar", example = "en")
+            @RequestParam(defaultValue = "en") String lang,
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.getAllProducts(pageable)));
+        return ResponseEntity.ok(
+                ApiResponse.success("Products fetched", productService.getAllProducts(lang, pageable))
+        );
     }
 
     @GetMapping("/{id}")
     @Operation(
             summary = "Get product by ID",
-            description = "Public endpoint that returns one product with its medicine details and category."
+            description = "Public endpoint that returns one product with its medicine details and category. "
+                    + "Set lang=ar to return its Arabic translation; the default language is English."
     )
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
                     useReturnTypeSchema = true,
                     description = "Product fetched successfully"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Language must be en or ar"
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
@@ -110,15 +121,20 @@ public class ProductController {
     })
     public ResponseEntity<ApiResponse<ProductResponse>> getProductById(
             @Parameter(description = "Product ID", example = "1", required = true)
-            @PathVariable Long id
+            @PathVariable Long id,
+            @Parameter(description = "Response language: en or ar", example = "en")
+            @RequestParam(defaultValue = "en") String lang
     ) {
-        return ResponseEntity.ok(ApiResponse.success("Product fetched", productService.getProductById(id)));
+        return ResponseEntity.ok(
+                ApiResponse.success("Product fetched", productService.getProductById(id, lang))
+        );
     }
 
     @GetMapping("/search")
     @Operation(
             summary = "Search products",
-            description = "Public endpoint that searches product name, Arabic name, and scientific name. "
+            description = "Public endpoint that searches product names and scientific names. With lang=ar, "
+                    + "the translated name, scientific name, category, company, and route are searched. "
                     + "A missing or blank keyword returns all products. Results are paginated and support the same "
                     + "sort fields as the get-all endpoint."
     )
@@ -130,7 +146,7 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value",
+                    description = "Invalid pagination, sort, or language value",
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
@@ -140,19 +156,25 @@ public class ProductController {
     })
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> searchProducts(
             @Parameter(
-                    description = "Text matched against product, Arabic, and scientific names",
+                    description = "Text matched against the localized product name and English product details",
                     example = "Panadol"
             )
             @RequestParam(required = false) String keyword,
+            @Parameter(description = "Search and response language: en or ar", example = "en")
+            @RequestParam(defaultValue = "en") String lang,
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.searchProducts(keyword, pageable)));
+        return ResponseEntity.ok(ApiResponse.success(
+                "Products fetched",
+                productService.searchProducts(keyword, lang, pageable)
+        ));
     }
 
     @GetMapping("/category/{categoryId}")
     @Operation(
             summary = "Get products by category",
             description = "Public endpoint that returns the products belonging to a category. "
+                    + "Set lang=ar to return Arabic product data; the categoryId remains unchanged. "
                     + "Results are paginated and support the same sort fields as the get-all endpoint."
     )
     @ApiResponses({
@@ -163,7 +185,7 @@ public class ProductController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "400",
-                    description = "Invalid pagination or sort value",
+                    description = "Invalid pagination, sort, or language value",
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
@@ -183,9 +205,14 @@ public class ProductController {
     public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getProductsByCategory(
             @Parameter(description = "Category ID", example = "1", required = true)
             @PathVariable Long categoryId,
+            @Parameter(description = "Response language: en or ar", example = "en")
+            @RequestParam(defaultValue = "en") String lang,
             @ParameterObject @PageableDefault(size = 20, sort = "name") Pageable pageable
     ) {
-        return ResponseEntity.ok(ApiResponse.success("Products fetched", productService.getProductsByCategory(categoryId, pageable)));
+        return ResponseEntity.ok(ApiResponse.success(
+                "Products fetched",
+                productService.getProductsByCategory(categoryId, lang, pageable)
+        ));
     }
 
     @PostMapping
@@ -193,6 +220,7 @@ public class ProductController {
     @Operation(
             summary = "Create a product",
             description = "Admin only. Creates a medicine product and links it to an existing category. "
+                    + "English product fields and their translated display values are required. "
                     + "The route must be one of EAR, EFF, EYE, INJECTION, MOUTH, ORAL.LIQUID, ORAL.SOLID, "
                     + "RECTAL, SPRAY, or TOPICAL.",
             security = @SecurityRequirement(name = "basicAuth")
@@ -245,6 +273,7 @@ public class ProductController {
     @Operation(
             summary = "Update a product",
             description = "Admin only. Partially updates a product; omitted fields keep their current values. "
+                    + "Translated fields update the product's Arabic translation. "
                     + "When categoryId is supplied, it must identify an existing category.",
             security = @SecurityRequirement(name = "basicAuth")
     )

@@ -2,8 +2,10 @@ package com.example.dawanow.config;
 
 import com.example.dawanow.entity.Category;
 import com.example.dawanow.entity.Product;
+import com.example.dawanow.entity.ProductTranslation;
 import com.example.dawanow.repo.CategoryRepository;
 import com.example.dawanow.repo.ProductRepository;
+import com.example.dawanow.repo.ProductTranslationRepository;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -34,8 +36,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProductDataInitializer implements ApplicationRunner {
 
     private static final String DATASET_PATH = "data/products.tsv";
+    private static final String ARABIC_TRANSLATIONS_PATH = "data/product_translations_ar.tsv";
     private static final String EXPECTED_HEADER =
-            "name\tarabicName\tscientificName\tprice\timageUrl\tcategoryName\tcompany\troute";
+            "name\tscientificName\tprice\timageUrl\tcategoryName\tcompany\troute";
+    private static final String EXPECTED_TRANSLATION_HEADER =
+            "productName\tprice\tname\tscientificName\tcategoryName\tcompany\troute";
+    private static final String ARABIC = "ar";
     private static final Set<String> VALID_ROUTES = Set.of(
             "EAR",
             "EFF",
@@ -51,24 +57,44 @@ public class ProductDataInitializer implements ApplicationRunner {
     private static final Set<String> NULL_LIKE_VALUES = Set.of(".", "N/A", "NA", "NONE", "NULL", "UNKNOWN");
 
     private final ProductRepository productRepository;
+    private final ProductTranslationRepository productTranslationRepository;
     private final CategoryRepository categoryRepository;
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) throws IOException {
-        if (productRepository.count() > 0) {
+        List<ProductSeed> seeds = readSeeds();
+        Map<ProductKey, ProductTranslationSeed> translationSeeds = readTranslationSeeds();
+        validateTranslationCoverage(seeds, translationSeeds);
+        Map<ProductKey, Product> products;
+
+        if (productRepository.count() == 0) {
+            Map<String, Category> categories = loadCategories(seeds);
+            List<Product> importedProducts = seeds.stream()
+                    .map(seed -> toProduct(
+                            seed,
+                            categories.get(categoryKey(seed.categoryName()))
+                    ))
+                    .toList();
+
+            productRepository.saveAll(importedProducts);
+            products = indexProducts(importedProducts);
+            log.info("Imported {} products and {} categories", importedProducts.size(), categories.size());
+        } else {
+            products = indexProducts(productRepository.findAll());
+            for (ProductSeed seed : seeds) {
+                ProductKey key = productKey(seed.name(), seed.price());
+                Product product = products.get(key);
+                if (product == null) {
+                    throw new IllegalStateException(
+                            "Existing product table does not contain dataset product: " + seed.name()
+                    );
+                }
+            }
             log.info("Product import skipped because the product table is not empty");
-            return;
         }
 
-        List<ProductSeed> seeds = readSeeds();
-        Map<String, Category> categories = loadCategories(seeds);
-        List<Product> products = seeds.stream()
-                .map(seed -> toProduct(seed, categories.get(categoryKey(seed.categoryName()))))
-                .toList();
-
-        productRepository.saveAll(products);
-        log.info("Imported {} products and {} categories", products.size(), categories.size());
+        synchronizeArabicTranslations(seeds, translationSeeds, products);
     }
 
     private List<ProductSeed> readSeeds() throws IOException {
@@ -91,7 +117,7 @@ public class ProductDataInitializer implements ApplicationRunner {
                     continue;
                 }
                 ProductSeed seed = parseLine(line, lineNumber);
-                ProductKey key = new ProductKey(seed.name().toUpperCase(Locale.ROOT), seed.price());
+                ProductKey key = productKey(seed.name(), seed.price());
                 if (!productKeys.add(key)) {
                     throw new IllegalStateException("Duplicate product dataset row at line " + lineNumber);
                 }
@@ -105,28 +131,61 @@ public class ProductDataInitializer implements ApplicationRunner {
         return seeds;
     }
 
+    private Map<ProductKey, ProductTranslationSeed> readTranslationSeeds() throws IOException {
+        ClassPathResource dataset = new ClassPathResource(ARABIC_TRANSLATIONS_PATH);
+        Map<ProductKey, ProductTranslationSeed> seeds = new HashMap<>();
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(dataset.getInputStream(), StandardCharsets.UTF_8))) {
+            String header = reader.readLine();
+            if (!EXPECTED_TRANSLATION_HEADER.equals(header)) {
+                throw new IllegalStateException("Unexpected Arabic product translation dataset header");
+            }
+
+            String line;
+            int lineNumber = 1;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                if (line.isBlank()) {
+                    continue;
+                }
+
+                ProductTranslationSeed seed = parseTranslationLine(line, lineNumber);
+                ProductKey key = productKey(seed.productName(), seed.price());
+                if (seeds.putIfAbsent(key, seed) != null) {
+                    throw new IllegalStateException(
+                            "Duplicate Arabic product translation at line " + lineNumber
+                    );
+                }
+            }
+        }
+
+        if (seeds.isEmpty()) {
+            throw new IllegalStateException("Arabic product translation dataset is empty");
+        }
+        return seeds;
+    }
+
     private ProductSeed parseLine(String line, int lineNumber) {
         String[] values = line.split("\t", -1);
-        if (values.length != 8) {
+        if (values.length != 7) {
             throw new IllegalStateException("Invalid product dataset row at line " + lineNumber);
         }
 
         String name = required(values[0], "name", 500, lineNumber);
-        String arabicName = required(values[1], "arabicName", 500, lineNumber);
-        String scientificName = required(values[2], "scientificName", 1000, lineNumber);
-        BigDecimal price = parsePrice(values[3], lineNumber);
-        String imageUrl = required(values[4], "imageUrl", 1000, lineNumber);
+        String scientificName = required(values[1], "scientificName", 1000, lineNumber);
+        BigDecimal price = parsePrice(values[2], lineNumber);
+        String imageUrl = required(values[3], "imageUrl", 1000, lineNumber);
         validateImageUrl(imageUrl, lineNumber);
-        String categoryName = required(values[5], "categoryName", 255, lineNumber);
-        String company = required(values[6], "company", 500, lineNumber);
-        String route = required(values[7], "route", 100, lineNumber);
+        String categoryName = required(values[4], "categoryName", 255, lineNumber);
+        String company = required(values[5], "company", 500, lineNumber);
+        String route = required(values[6], "route", 100, lineNumber);
         if (!VALID_ROUTES.contains(route)) {
             throw invalidField("route", lineNumber);
         }
 
         return new ProductSeed(
                 name,
-                arabicName,
                 scientificName,
                 price,
                 imageUrl,
@@ -134,6 +193,40 @@ public class ProductDataInitializer implements ApplicationRunner {
                 company,
                 route
         );
+    }
+
+    private ProductTranslationSeed parseTranslationLine(String line, int lineNumber) {
+        String[] values = line.split("\t", -1);
+        if (values.length != 7) {
+            throw new IllegalStateException(
+                    "Invalid Arabic product translation row at line " + lineNumber
+            );
+        }
+
+        return new ProductTranslationSeed(
+                required(values[0], "productName", 500, lineNumber),
+                parsePrice(values[1], lineNumber),
+                required(values[2], "translated name", 500, lineNumber),
+                required(values[3], "translated scientificName", 1000, lineNumber),
+                required(values[4], "translated categoryName", 255, lineNumber),
+                required(values[5], "translated company", 500, lineNumber),
+                required(values[6], "translated route", 100, lineNumber)
+        );
+    }
+
+    private void validateTranslationCoverage(
+            List<ProductSeed> productSeeds,
+            Map<ProductKey, ProductTranslationSeed> translationSeeds
+    ) {
+        Set<ProductKey> productKeys = productSeeds.stream()
+                .map(seed -> productKey(seed.name(), seed.price()))
+                .collect(java.util.stream.Collectors.toSet());
+
+        if (!productKeys.equals(translationSeeds.keySet())) {
+            throw new IllegalStateException(
+                    "Arabic translations must match every product dataset row exactly"
+            );
+        }
     }
 
     private Map<String, Category> loadCategories(List<ProductSeed> seeds) {
@@ -167,7 +260,6 @@ public class ProductDataInitializer implements ApplicationRunner {
     private Product toProduct(ProductSeed seed, Category category) {
         Product product = new Product();
         product.setName(seed.name());
-        product.setArabicName(seed.arabicName());
         product.setScientificName(seed.scientificName());
         product.setPrice(seed.price());
         product.setImageUrl(seed.imageUrl());
@@ -175,6 +267,57 @@ public class ProductDataInitializer implements ApplicationRunner {
         product.setCompany(seed.company());
         product.setRoute(seed.route());
         return product;
+    }
+
+    private Map<ProductKey, Product> indexProducts(List<Product> products) {
+        Map<ProductKey, Product> indexedProducts = new HashMap<>();
+        for (Product product : products) {
+            ProductKey key = productKey(product.getName(), product.getPrice());
+            if (indexedProducts.putIfAbsent(key, product) != null) {
+                throw new IllegalStateException(
+                        "Duplicate product name and price in database: " + product.getName()
+                );
+            }
+        }
+        return indexedProducts;
+    }
+
+    private void synchronizeArabicTranslations(
+            List<ProductSeed> productSeeds,
+            Map<ProductKey, ProductTranslationSeed> translationSeeds,
+            Map<ProductKey, Product> products
+    ) {
+        Map<Long, ProductTranslation> existingTranslations = new HashMap<>();
+        for (ProductTranslation translation : productTranslationRepository.findAllByLang(ARABIC)) {
+            if (existingTranslations.putIfAbsent(translation.getProduct().getId(), translation) != null) {
+                throw new IllegalStateException(
+                        "Duplicate Arabic translation for product ID " + translation.getProduct().getId()
+                );
+            }
+        }
+
+        List<ProductTranslation> translations = new ArrayList<>();
+        for (ProductSeed productSeed : productSeeds) {
+            ProductKey key = productKey(productSeed.name(), productSeed.price());
+            Product product = products.get(key);
+            ProductTranslationSeed seed = translationSeeds.get(key);
+            ProductTranslation translation = existingTranslations.get(product.getId());
+            if (translation == null) {
+                translation = new ProductTranslation();
+                translation.setProduct(product);
+                translation.setLang(ARABIC);
+            }
+
+            translation.setName(seed.name());
+            translation.setScientificName(seed.scientificName());
+            translation.setCategoryName(seed.categoryName());
+            translation.setCompany(seed.company());
+            translation.setRoute(seed.route());
+            translations.add(translation);
+        }
+
+        productTranslationRepository.saveAll(translations);
+        log.info("Synchronized {} Arabic product translations", translations.size());
     }
 
     private String required(String value, String fieldName, int maxLength, int lineNumber) {
@@ -214,6 +357,13 @@ public class ProductDataInitializer implements ApplicationRunner {
         return name.trim().toUpperCase(Locale.ROOT);
     }
 
+    private ProductKey productKey(String name, BigDecimal price) {
+        return new ProductKey(
+                name.trim().toUpperCase(Locale.ROOT),
+                price.stripTrailingZeros()
+        );
+    }
+
     private IllegalStateException invalidField(String fieldName, int lineNumber) {
         return new IllegalStateException(
                 "Invalid product dataset field '" + fieldName + "' at line " + lineNumber
@@ -225,10 +375,20 @@ public class ProductDataInitializer implements ApplicationRunner {
 
     private record ProductSeed(
             String name,
-            String arabicName,
             String scientificName,
             BigDecimal price,
             String imageUrl,
+            String categoryName,
+            String company,
+            String route
+    ) {
+    }
+
+    private record ProductTranslationSeed(
+            String productName,
+            BigDecimal price,
+            String name,
+            String scientificName,
             String categoryName,
             String company,
             String route
