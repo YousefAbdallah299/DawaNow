@@ -56,18 +56,38 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public PaginatedResponse<ProductResponse> getAllProducts(String lang, Pageable pageable) {
+        return getAllProducts(lang, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public PaginatedResponse<ProductResponse> getAllProducts(
+            String lang,
+            String company,
+            Long categoryId,
+            Pageable pageable
+    ) {
         String language = normalizeLanguage(lang);
         Pageable validatedPageable = validateSort(pageable);
+        String companyFilter = normalizeOptionalFilter(company);
+        if (categoryId != null && !categoryRepository.existsById(categoryId)) {
+            throw new ResourceNotFoundException("Category not found");
+        }
 
         if (ARABIC.equals(language)) {
             Page<ProductResponse> products = productTranslationRepository
-                    .findByLang(ARABIC, toArabicPageable(validatedPageable))
+                    .findAllFiltered(
+                            ARABIC,
+                            companyFilter,
+                            categoryId,
+                            toArabicPageable(validatedPageable)
+                    )
                     .map(productMapper::toResponse);
             return PaginatedResponse.from(products);
         }
 
         return PaginatedResponse.from(
-                productRepository.findAll(validatedPageable).map(productMapper::toResponse)
+                productRepository.findAllFiltered(companyFilter, categoryId, validatedPageable)
+                        .map(productMapper::toResponse)
         );
     }
 
@@ -258,6 +278,10 @@ public class ProductService {
             throw new IllegalArgumentException("Product price must be positive");
         }
         return price;
+    }
+
+    private String normalizeOptionalFilter(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private Pageable validateSort(Pageable pageable) {

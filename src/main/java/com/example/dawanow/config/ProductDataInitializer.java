@@ -1,9 +1,11 @@
 package com.example.dawanow.config;
 
 import com.example.dawanow.entity.Category;
+import com.example.dawanow.entity.CategoryTranslation;
 import com.example.dawanow.entity.Product;
 import com.example.dawanow.entity.ProductTranslation;
 import com.example.dawanow.repo.CategoryRepository;
+import com.example.dawanow.repo.CategoryTranslationRepository;
 import com.example.dawanow.repo.ProductRepository;
 import com.example.dawanow.repo.ProductTranslationRepository;
 import java.io.BufferedReader;
@@ -59,6 +61,7 @@ public class ProductDataInitializer implements ApplicationRunner {
     private final ProductRepository productRepository;
     private final ProductTranslationRepository productTranslationRepository;
     private final CategoryRepository categoryRepository;
+    private final CategoryTranslationRepository categoryTranslationRepository;
 
     @Override
     @Transactional
@@ -95,6 +98,7 @@ public class ProductDataInitializer implements ApplicationRunner {
         }
 
         synchronizeArabicTranslations(seeds, translationSeeds, products);
+        synchronizeArabicCategoryTranslations(seeds, translationSeeds, products);
     }
 
     private List<ProductSeed> readSeeds() throws IOException {
@@ -318,6 +322,53 @@ public class ProductDataInitializer implements ApplicationRunner {
 
         productTranslationRepository.saveAll(translations);
         log.info("Synchronized {} Arabic product translations", translations.size());
+    }
+
+    private void synchronizeArabicCategoryTranslations(
+            List<ProductSeed> productSeeds,
+            Map<ProductKey, ProductTranslationSeed> translationSeeds,
+            Map<ProductKey, Product> products
+    ) {
+        Map<Long, Category> categories = new HashMap<>();
+        Map<Long, String> translatedNames = new HashMap<>();
+        for (ProductSeed productSeed : productSeeds) {
+            ProductKey key = productKey(productSeed.name(), productSeed.price());
+            Category category = products.get(key).getCategory();
+            String translatedName = translationSeeds.get(key).categoryName();
+            categories.put(category.getId(), category);
+
+            String existingName = translatedNames.putIfAbsent(category.getId(), translatedName);
+            if (existingName != null && !existingName.equals(translatedName)) {
+                throw new IllegalStateException(
+                        "Conflicting Arabic translations for category: " + category.getName()
+                );
+            }
+        }
+
+        Map<Long, CategoryTranslation> existingTranslations = new HashMap<>();
+        for (CategoryTranslation translation : categoryTranslationRepository.findAllByLang(ARABIC)) {
+            Long categoryId = translation.getCategory().getId();
+            if (existingTranslations.putIfAbsent(categoryId, translation) != null) {
+                throw new IllegalStateException(
+                        "Duplicate Arabic translation for category ID " + categoryId
+                );
+            }
+        }
+
+        List<CategoryTranslation> translations = new ArrayList<>();
+        translatedNames.forEach((categoryId, translatedName) -> {
+            CategoryTranslation translation = existingTranslations.get(categoryId);
+            if (translation == null) {
+                translation = new CategoryTranslation();
+                translation.setCategory(categories.get(categoryId));
+                translation.setLang(ARABIC);
+            }
+            translation.setName(translatedName);
+            translations.add(translation);
+        });
+
+        categoryTranslationRepository.saveAll(translations);
+        log.info("Synchronized {} Arabic category translations", translations.size());
     }
 
     private String required(String value, String fieldName, int maxLength, int lineNumber) {
