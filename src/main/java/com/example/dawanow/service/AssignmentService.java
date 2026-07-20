@@ -19,6 +19,7 @@ public class AssignmentService {
     private final PharmacyRepository pharmacyRepository;
     private final PharmacyAssignmentRepository pharmacyAssignmentRepository;
 
+    @Transactional
     public void assignNearbyPharmacies(MedicineRequest medicineRequest) {
         List<PharmacyAssignment> assignments = new ArrayList<>();
 
