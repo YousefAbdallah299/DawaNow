@@ -8,6 +8,7 @@ import com.example.dawanow.entity.*;
 import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.mapper.MedicineRequestMapper;
 import com.example.dawanow.repo.MedicineRequestRepository;
+import com.example.dawanow.repo.PharmacyAssignmentRepository;
 import com.example.dawanow.repo.PharmacyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -15,6 +16,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -28,6 +30,7 @@ public class MedicineRequestService {
     private final MedicineRequestMapper medicineRequestMapper;
     private final CartService cartService;
     private final AssignmentService assignmentService;
+    private final PharmacyAssignmentRepository pharmacyAssignmentRepository;
 
     @Transactional
     public MedicineRequestResponse createRequest(CreateMedicineRequestRequest request) {
@@ -65,6 +68,25 @@ public class MedicineRequestService {
         cartService.clearCart();
 
         return medicineRequestMapper.toResponse(medicineRequest);
+    }
+
+    @Transactional
+    public PaginatedResponse<MedicineRequestResponse> getCurrentPharmacyRequests(Pageable pageable) {
+
+        Pharmacist pharmacist = (Pharmacist) currentUserProvider.get();
+
+        if (pharmacist.getPharmacy() == null) {
+            throw new ResourceNotFoundException("Current pharmacist is not assigned to any pharmacy");
+        }
+
+        Long pharmacyId = pharmacist.getPharmacy().getId();
+
+
+
+        return PaginatedResponse.from(
+                pharmacyAssignmentRepository.getPharmacyAssignmentsByPharmacy_Id(pharmacyId,pageable)
+                        .map(pharmacyAssignment -> medicineRequestMapper.toResponse(pharmacyAssignment.getMedicineRequest()))
+        );
     }
 
     @Transactional(readOnly = true)
