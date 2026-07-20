@@ -12,14 +12,14 @@ public interface PharmacyRepository extends JpaRepository<Pharmacy, Long> {
 
     @Query(
             value = """
-                 SELECT p, (
+                 SELECT p.*, (
                      6371 * acos(
                          cos(radians(:latitude)) * cos(radians(p.latitude)) *
                          cos(radians(p.longitude) - radians(:longitude)) +
                          sin(radians(:latitude)) * sin(radians(p.latitude))
                      )
                  ) AS distance
-                 FROM Pharmacy p
+                 FROM pharmacy p
                  WHERE (
                      6371 * acos(
                          cos(radians(:latitude)) * cos(radians(p.latitude)) *
