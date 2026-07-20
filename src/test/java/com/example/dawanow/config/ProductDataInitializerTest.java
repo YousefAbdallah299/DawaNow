@@ -87,9 +87,9 @@ class ProductDataInitializerTest {
         List<CategoryTranslation> categoryTranslations = categoryTranslationRepository.findAllByLang("ar");
 
         assertThat(products).hasSize(798);
-        assertThat(categories).hasSize(226);
+        assertThat(categories).hasSize(24);
         assertThat(translations).hasSize(798);
-        assertThat(categoryTranslations).hasSize(226);
+        assertThat(categoryTranslations).hasSize(24);
         assertThat(translations)
                 .extracting(ProductTranslation::getName)
                 .noneMatch(name -> name.contains(BROWSER_TABS_TRANSLATION))
@@ -97,8 +97,7 @@ class ProductDataInitializerTest {
         assertThat(categories)
                 .extracting(Category::getName)
                 .doesNotHaveDuplicates()
-                .allMatch(name -> !name.isBlank() && name.equals(name.toUpperCase()))
-                .noneMatch(name -> NON_MEDICINE_CATEGORY.matcher(name).find());
+                .allMatch(name -> !name.isBlank() && name.equals(name.toUpperCase()));
         assertThat(products)
                 .extracting(Product::getName, Product::getPrice)
                 .doesNotHaveDuplicates();
@@ -108,22 +107,30 @@ class ProductDataInitializerTest {
                 .hasSize(categories.size());
         assertThat(products).allSatisfy(product -> {
             assertThat(product.getName()).isNotBlank();
+            assertThat(product.getProductName()).isNotBlank();
+            assertThat(product.getForm()).isNotBlank();
             assertThat(product.getScientificName()).isNotBlank();
+            assertThat(product.getScientificCategory()).isNotBlank();
             assertThat(product.getPrice()).isPositive();
             assertThat(product.getImageUrl()).startsWith("https://");
             assertThat(product.getCategory()).isNotNull();
             assertThat(product.getCategory().getId()).isNotNull();
             assertThat(product.getCompany()).isNotBlank();
             assertThat(product.getRoute()).isIn(VALID_ROUTES);
+            assertThat(product.getDescription()).isNotBlank();
         });
         assertThat(translations).allSatisfy(translation -> {
             assertThat(translation.getProduct()).isNotNull();
             assertThat(translation.getLang()).isEqualTo("ar");
             assertThat(translation.getName()).containsPattern(ARABIC_TEXT);
+            assertThat(translation.getProductName()).containsPattern(ARABIC_TEXT);
+            assertThat(translation.getForm()).containsPattern(ARABIC_TEXT);
             assertThat(translation.getScientificName()).containsPattern(ARABIC_TEXT);
-            assertThat(translation.getCategoryName()).containsPattern(ARABIC_TEXT);
+            assertThat(translation.getScientificCategory()).containsPattern(ARABIC_TEXT);
+            assertThat(translation.getConsumerCategory()).containsPattern(ARABIC_TEXT);
             assertThat(translation.getCompany()).containsPattern(ARABIC_TEXT);
             assertThat(translation.getRoute()).containsPattern(ARABIC_TEXT);
+            assertThat(translation.getDescription()).containsPattern(ARABIC_TEXT);
         });
         assertThat(categoryTranslations).allSatisfy(translation -> {
             assertThat(translation.getCategory()).isNotNull();
@@ -139,7 +146,8 @@ class ProductDataInitializerTest {
         assertThat(arabicProducts.content()).allSatisfy(product -> {
             assertThat(product.name()).containsPattern(ARABIC_TEXT);
             assertThat(product.scientificName()).containsPattern(ARABIC_TEXT);
-            assertThat(product.categoryName()).containsPattern(ARABIC_TEXT);
+            assertThat(product.scientificCategory()).containsPattern(ARABIC_TEXT);
+            assertThat(product.consumerCategory()).containsPattern(ARABIC_TEXT);
             assertThat(product.company()).containsPattern(ARABIC_TEXT);
             assertThat(product.route()).containsPattern(ARABIC_TEXT);
         });
@@ -151,7 +159,7 @@ class ProductDataInitializerTest {
         assertThat(arabicProduct.price()).isEqualByComparingTo(englishProduct.price());
         assertThat(arabicProduct.imageUrl()).isEqualTo(englishProduct.imageUrl());
         assertThat(arabicProduct.categoryId()).isEqualTo(englishProduct.categoryId());
-        assertThat(arabicProduct.categoryName()).isNotEqualTo(englishProduct.categoryName());
+        assertThat(arabicProduct.consumerCategory()).isNotEqualTo(englishProduct.consumerCategory());
         assertThat(arabicProduct.company()).isNotEqualTo(englishProduct.company());
         assertThat(arabicProduct.route()).isNotEqualTo(englishProduct.route());
         assertThat(productService.getProductById(arabicProduct.id(), "ar")).isEqualTo(arabicProduct);
@@ -217,7 +225,7 @@ class ProductDataInitializerTest {
                 PageRequest.of(0, 10, Sort.by("name"))
         );
         assertThat(categories.content()).hasSize(10);
-        assertThat(categories.totalElements()).isEqualTo(226);
+        assertThat(categories.totalElements()).isEqualTo(24);
 
         CategoryResponse created = categoryService.createCategory(new CreateCategoryRequest("test category"));
         assertThat(created.name()).isEqualTo("TEST CATEGORY");
@@ -242,7 +250,7 @@ class ProductDataInitializerTest {
                 PageRequest.of(0, 20, Sort.by("name"))
         );
 
-        assertThat(arabicCategories.totalElements()).isEqualTo(226);
+        assertThat(arabicCategories.totalElements()).isEqualTo(24);
         assertThat(arabicCategories.content()).hasSize(20).allSatisfy(category ->
                 assertThat(category.name()).containsPattern(ARABIC_TEXT)
         );
@@ -268,6 +276,6 @@ class ProductDataInitializerTest {
 
         assertThat(productRepository.count()).isEqualTo(798);
         assertThat(productTranslationRepository.findAllByLang("ar")).hasSize(798);
-        assertThat(categoryTranslationRepository.findAllByLang("ar")).hasSize(226);
+        assertThat(categoryTranslationRepository.findAllByLang("ar")).hasSize(24);
     }
 }
