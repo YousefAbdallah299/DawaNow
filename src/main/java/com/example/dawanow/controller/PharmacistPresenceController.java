@@ -1,5 +1,6 @@
 package com.example.dawanow.controller;
 
+import com.example.dawanow.dtos.response.ApiResponse;
 import com.example.dawanow.dtos.response.PresenceStatusResponse;
 import com.example.dawanow.service.CurrentPharmacistProvider;
 import com.example.dawanow.service.PresenceService;
@@ -37,9 +38,9 @@ public class PharmacistPresenceController {
                     responseCode = "401", description = "Authentication is required"
             )
     })
-    public ResponseEntity<PresenceStatusResponse> goOnDuty() {
+    public ResponseEntity<ApiResponse<PresenceStatusResponse>> goOnDuty() {
         Long pharmacistId = currentPharmacist.get().getId();
-        return ResponseEntity.ok(presenceService.goOnDuty(pharmacistId));
+        return ResponseEntity.ok(ApiResponse.success("On duty", presenceService.goOnDuty(pharmacistId)));
     }
 
     @PostMapping("/off-duty")
@@ -57,9 +58,9 @@ public class PharmacistPresenceController {
                     responseCode = "401", description = "Authentication is required"
             )
     })
-    public ResponseEntity<PresenceStatusResponse> goOffDuty() {
+    public ResponseEntity<ApiResponse<PresenceStatusResponse>> goOffDuty() {
         Long pharmacistId = currentPharmacist.get().getId();
-        return ResponseEntity.ok(presenceService.goOffDuty(pharmacistId));
+        return ResponseEntity.ok(ApiResponse.success("Off duty", presenceService.goOffDuty(pharmacistId)));
     }
 
     @PostMapping("/heartbeat")
@@ -78,8 +79,8 @@ public class PharmacistPresenceController {
                     responseCode = "401", description = "Authentication is required"
             )
     })
-    public ResponseEntity<PresenceStatusResponse> heartbeat() {
+    public ResponseEntity<ApiResponse<PresenceStatusResponse>> heartbeat() {
         Long pharmacistId = currentPharmacist.get().getId();
-        return ResponseEntity.ok(presenceService.heartbeat(pharmacistId));
+        return ResponseEntity.ok(ApiResponse.success("Heartbeat", presenceService.heartbeat(pharmacistId)));
     }
 }
