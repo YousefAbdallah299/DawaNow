@@ -1,6 +1,8 @@
 package com.example.dawanow.controller;
 
+import com.example.dawanow.dtos.request.CreateOfferRequest;
 import com.example.dawanow.dtos.response.ApiResponse;
+import com.example.dawanow.dtos.response.MedicineRequestResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.dtos.response.PharmacyOfferResponse;
 import com.example.dawanow.service.PharmacyOfferService;
@@ -9,17 +11,18 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.apache.coyote.BadRequestException;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.nio.file.AccessDeniedException;
 
 @RestController
 @RequestMapping("/api/v1/offers")
@@ -94,6 +97,88 @@ public class PharmacyOfferController {
             @PathVariable Long id
     ) {
         return ResponseEntity.ok(ApiResponse.success("Offer fetched", pharmacyOfferService.getOfferById(id)));
+    }
+
+    @PostMapping("/requests/{requestId}")
+    @PreAuthorize("hasRole('PHARMACIST')")
+    @Operation(
+            summary = "Create a pharmacy offer",
+            description = "Allows an authenticated pharmacist to submit an offer for a specific assigned medicine request.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "201",
+                    useReturnTypeSchema = true,
+                    description = "Pharmacy offer created successfully"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "Bad request (e.g., duplicate offer or invalid items)"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Access denied / Request not assigned to your pharmacy"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Medicine request or product not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<PharmacyOfferResponse>> createPharmacyOffer(
+            @PathVariable Long requestId,
+            @Valid @RequestBody CreateOfferRequest request
+    ) throws AccessDeniedException, BadRequestException {
+
+        PharmacyOfferResponse offerResponse = pharmacyOfferService.createOffer(requestId, request);
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Pharmacy offer created successfully", offerResponse));
+    }
+
+
+
+    @GetMapping("requests/{requestId}")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(
+            summary = "Get offers for a medicine request",
+            description = "Customer only. Returns a paginated list of offers submitted by pharmacies for a specific medicine request.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Pharmacy offers fetched successfully"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Customer role is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Medicine request not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<PaginatedResponse<PharmacyOfferResponse>>> getRequestOffers(
+            @PathVariable Long requestId,
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable
+    ) {
+        PaginatedResponse<PharmacyOfferResponse> paginatedResponse = pharmacyOfferService.getRequestOffers(requestId, pageable);
+
+        return ResponseEntity.ok(ApiResponse.success(
+                "Medicine request offers fetched successfully",
+                paginatedResponse
+        ));
     }
 
     @PostMapping("/{id}/accept")
