@@ -70,6 +70,10 @@ public class MedicineRequestService {
         return medicineRequestMapper.toResponse(medicineRequest);
     }
 
+    public MedicineRequest getEntity(Long medicineRequestId){
+        return medicineRequestRepository.findById(medicineRequestId).orElseThrow(()->new ResourceNotFoundException("Medicine Request not found"));
+    }
+
     @Transactional
     public PaginatedResponse<MedicineRequestResponse> getCurrentPharmacyRequests(Pageable pageable) {
 
