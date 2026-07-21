@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -187,12 +189,15 @@ class GeminiPrescriptionAiClientTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {400, 403, 429, 500, 503})
-    void mapsProviderHttpErrorsToUnavailable(int status) {
+    @ValueSource(ints = {400, 403, 404, 429, 500, 503})
+    void preservesSafeProviderHttpStatusInsteadOfChangingEveryFailureTo503(int status) {
         server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withStatus(HttpStatusCode.valueOf(status)));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+        assertFailure(
+                () -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY),
+                HttpStatusCode.valueOf(status)
+        );
     }
 
     @Test
@@ -201,7 +206,12 @@ class GeminiPrescriptionAiClientTest {
                 .andExpect(header("x-goog-api-key", "invalid-key"))
                 .andRespond(withStatus(HttpStatusCode.valueOf(401)));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", "invalid-key"));
+        assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", "invalid-key"))
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(exception.getMessage()).isEqualTo("The Gemini API key is invalid or was not accepted");
+                });
+        server.verify();
     }
 
     @Test
@@ -214,7 +224,10 @@ class GeminiPrescriptionAiClientTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(providerResponse));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+        assertFailure(
+                () -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY),
+                HttpStatus.NOT_FOUND
+        );
 
         assertThat(output).contains("category=model-not-found")
                 .doesNotContain(providerResponse);
@@ -230,7 +243,10 @@ class GeminiPrescriptionAiClientTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(providerResponse));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+        assertFailure(
+                () -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY),
+                HttpStatus.BAD_REQUEST
+        );
 
         assertThat(output).contains("category=request-schema")
                 .contains("httpStatus=400")
@@ -245,7 +261,10 @@ class GeminiPrescriptionAiClientTest {
     void rejectsMissingOrEmptyPerRequestKeyWithoutCallingGemini() {
         assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", " "))
                 .isInstanceOf(PrescriptionAiUnavailableException.class)
-                .hasMessage("Prescription AI is not configured");
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(exception.getMessage()).isEqualTo("X-Gemini-Api-Key header is required");
+                });
         server.verify();
     }
 
@@ -254,7 +273,25 @@ class GeminiPrescriptionAiClientTest {
         server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withException(new SocketTimeoutException("timed out")));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+        assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY))
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
+                    assertThat(exception.getMessage()).contains("timed out");
+                });
+        server.verify();
+    }
+
+    @Test
+    void mapsJavaHttpClientTimeoutToGatewayTimeout() {
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withException(new HttpTimeoutException("timed out")));
+
+        assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY))
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
+                    assertThat(exception.getMessage()).contains("timed out");
+                });
+        server.verify();
     }
 
     @Test
@@ -262,7 +299,12 @@ class GeminiPrescriptionAiClientTest {
         server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withException(new ConnectException("connection refused")));
 
-        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+        assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY))
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getMessage()).isEqualTo("Could not connect to Gemini");
+                });
+        server.verify();
     }
 
     private String providerResponse(String output) throws JsonProcessingException {
@@ -289,8 +331,18 @@ class GeminiPrescriptionAiClientTest {
 
     private void assertUnavailable(ThrowingCall call) {
         assertThatThrownBy(call::run)
-                .isInstanceOf(PrescriptionAiUnavailableException.class)
-                .hasMessage("Prescription AI provider is unavailable");
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getMessage()).isEqualTo(
+                            "Gemini returned an invalid prescription analysis response");
+                });
+        server.verify();
+    }
+
+    private void assertFailure(ThrowingCall call, HttpStatusCode expectedStatus) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class,
+                        exception -> assertThat(exception.getStatus()).isEqualTo(expectedStatus));
         server.verify();
     }
 

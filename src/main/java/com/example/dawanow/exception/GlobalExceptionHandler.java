@@ -76,7 +76,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handlePrescriptionAiUnavailable(
             PrescriptionAiUnavailableException exception
     ) {
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        return ResponseEntity.status(exception.getStatus())
                 .body(ApiResponse.failure(exception.getMessage()));
     }
 }

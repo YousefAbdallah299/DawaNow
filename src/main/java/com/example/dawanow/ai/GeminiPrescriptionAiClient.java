@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -58,7 +60,7 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
             String apiKey
     ) {
         if (apiKey == null || apiKey.isBlank()) {
-            throw new PrescriptionAiUnavailableException("Prescription AI is not configured");
+            throw failure(HttpStatus.BAD_REQUEST, "X-Gemini-Api-Key header is required");
         }
         try {
             String requestBody = objectMapper.writeValueAsString(buildRequest(image, contentType, language));
@@ -75,18 +77,16 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
             log.warn("Gemini prescription response failed validation: category=invalid-response");
             throw exception;
         } catch (RestClientResponseException exception) {
-            logUpstreamHttpFailure(exception);
-            throw unavailable();
+            throw mapUpstreamHttpFailure(exception);
         } catch (ResourceAccessException exception) {
-            logResourceFailure(exception);
-            throw unavailable();
+            throw mapResourceFailure(exception);
         } catch (RestClientException exception) {
             log.warn("Gemini prescription request failed: category=client-error type={}",
                     exception.getClass().getSimpleName());
-            throw unavailable();
+            throw failure(HttpStatus.BAD_GATEWAY, "Could not send the prescription to Gemini");
         } catch (JsonProcessingException exception) {
             log.warn("Gemini prescription response failed validation: category=invalid-response");
-            throw unavailable();
+            throw invalidResponse();
         }
     }
 
@@ -255,10 +255,18 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
     }
 
     private PrescriptionAiUnavailableException unavailable() {
-        return new PrescriptionAiUnavailableException("Prescription AI provider is unavailable");
+        return invalidResponse();
     }
 
-    private void logUpstreamHttpFailure(RestClientResponseException exception) {
+    private PrescriptionAiUnavailableException invalidResponse() {
+        return failure(HttpStatus.BAD_GATEWAY, "Gemini returned an invalid prescription analysis response");
+    }
+
+    private PrescriptionAiUnavailableException failure(HttpStatusCode status, String message) {
+        return new PrescriptionAiUnavailableException(status, message);
+    }
+
+    private PrescriptionAiUnavailableException mapUpstreamHttpFailure(RestClientResponseException exception) {
         int status = exception.getStatusCode().value();
         ProviderFailure providerFailure = providerFailure(exception);
         String category = switch (status) {
@@ -273,15 +281,49 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
         };
         log.warn("Gemini prescription request failed: category={} httpStatus={} providerCode={} fieldHint={}",
                 category, status, providerFailure.code(), providerFailure.fieldHint());
+
+        return switch (status) {
+            case 400 -> failure(HttpStatus.BAD_REQUEST,
+                    "Gemini rejected the prescription image or analysis request");
+            case 401 -> failure(HttpStatus.UNAUTHORIZED,
+                    "The Gemini API key is invalid or was not accepted");
+            case 403 -> failure(HttpStatus.FORBIDDEN,
+                    "The Gemini API key does not have permission to use this model");
+            case 404 -> failure(HttpStatus.NOT_FOUND,
+                    "model".equals(providerFailure.fieldHint())
+                            ? "The configured Gemini model was not found"
+                            : "The configured Gemini API endpoint was not found");
+            case 429 -> failure(HttpStatus.TOO_MANY_REQUESTS,
+                    "Gemini rate limit or quota was exceeded. Please try again later");
+            default -> status >= 500
+                    ? failure(HttpStatusCode.valueOf(status),
+                            "Gemini is temporarily unavailable")
+                    : failure(HttpStatusCode.valueOf(status),
+                            "Gemini rejected the prescription analysis request");
+        };
     }
 
-    private void logResourceFailure(ResourceAccessException exception) {
+    private PrescriptionAiUnavailableException mapResourceFailure(ResourceAccessException exception) {
         Throwable cause = exception.getMostSpecificCause();
         String type = cause == null ? "unknown" : cause.getClass().getSimpleName();
-        String category = cause instanceof java.net.SocketTimeoutException
+        boolean timeout = cause instanceof java.net.SocketTimeoutException
+                || cause instanceof java.net.http.HttpTimeoutException;
+        boolean connection = cause instanceof java.net.ConnectException;
+        String category = timeout
                 ? "timeout"
-                : cause instanceof java.net.ConnectException ? "connection" : "network";
+                : connection ? "connection" : "network";
         log.warn("Gemini prescription request failed: category={} causeType={}", category, type);
+
+        if (timeout) {
+            return failure(HttpStatus.GATEWAY_TIMEOUT,
+                    "Gemini did not respond before the request timed out");
+        }
+        if (connection) {
+            return failure(HttpStatus.BAD_GATEWAY,
+                    "Could not connect to Gemini");
+        }
+        return failure(HttpStatus.BAD_GATEWAY,
+                "A network error occurred while contacting Gemini");
     }
 
     private ProviderFailure providerFailure(RestClientResponseException exception) {
