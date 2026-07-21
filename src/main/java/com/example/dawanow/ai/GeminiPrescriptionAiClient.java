@@ -8,18 +8,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 
 public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
-    static final String INTERACTIONS_PATH = "/v1beta/interactions";
+    static final String GENERATE_CONTENT_PATH_TEMPLATE = "/v1beta/models/%s:generateContent";
     private static final String API_KEY_HEADER = "x-goog-api-key";
+    private static final Logger log = LoggerFactory.getLogger(GeminiPrescriptionAiClient.class);
     private static final Set<String> ROOT_FIELDS = Set.of("medicines");
     private static final Set<String> MEDICINE_FIELDS = Set.of(
             "rawText", "name", "strength", "form", "confidence"
@@ -27,16 +33,21 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
-    private final String model;
+    private final String generateContentPath;
 
     public GeminiPrescriptionAiClient(
             RestClient restClient,
             ObjectMapper objectMapper,
             String model
     ) {
+        if (model == null || !model.matches("[A-Za-z0-9._-]{1,100}")) {
+            throw new IllegalArgumentException("Gemini model configuration is invalid");
+        }
         this.restClient = restClient;
         this.objectMapper = objectMapper;
-        this.model = model;
+        this.generateContentPath = GENERATE_CONTENT_PATH_TEMPLATE.formatted(model);
+        log.info("Gemini prescription client configured: endpointPath={} model={}",
+                safeEndpointPath(generateContentPath), safeLogValue(model));
     }
 
     @Override
@@ -52,7 +63,7 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
         try {
             String requestBody = objectMapper.writeValueAsString(buildRequest(image, contentType, language));
             String responseBody = restClient.post()
-                    .uri(INTERACTIONS_PATH)
+                    .uri(generateContentPath)
                     .header(API_KEY_HEADER, apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
@@ -61,45 +72,50 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
             return parseResponse(responseBody == null ? null : objectMapper.readTree(responseBody));
         } catch (PrescriptionAiUnavailableException exception) {
+            log.warn("Gemini prescription response failed validation: category=invalid-response");
             throw exception;
-        } catch (RestClientException | JsonProcessingException exception) {
+        } catch (RestClientResponseException exception) {
+            logUpstreamHttpFailure(exception);
+            throw unavailable();
+        } catch (ResourceAccessException exception) {
+            logResourceFailure(exception);
+            throw unavailable();
+        } catch (RestClientException exception) {
+            log.warn("Gemini prescription request failed: category=client-error type={}",
+                    exception.getClass().getSimpleName());
+            throw unavailable();
+        } catch (JsonProcessingException exception) {
+            log.warn("Gemini prescription response failed validation: category=invalid-response");
             throw unavailable();
         }
     }
 
     private ObjectNode buildRequest(byte[] image, String contentType, String language) {
         ObjectNode request = objectMapper.createObjectNode();
-        request.put("model", model);
-        request.put("store", false);
 
-        ArrayNode input = request.putArray("input");
-        ObjectNode imageInput = input.addObject();
-        imageInput.put("type", "image");
-        imageInput.put("data", Base64.getEncoder().encodeToString(image));
-        imageInput.put("mime_type", contentType);
+        ObjectNode content = request.putArray("contents").addObject();
+        content.put("role", "user");
+        ArrayNode parts = content.putArray("parts");
+        ObjectNode inlineData = parts.addObject().putObject("inline_data");
+        inlineData.put("mime_type", contentType);
+        inlineData.put("data", Base64.getEncoder().encodeToString(image));
+        parts.addObject().put("text", extractionPrompt(language));
 
-        ObjectNode textInput = input.addObject();
-        textInput.put("type", "text");
-        textInput.put("text", extractionPrompt(language));
-
-        ObjectNode responseFormat = request.putObject("response_format");
-        responseFormat.put("type", "text");
-        responseFormat.put("mime_type", MediaType.APPLICATION_JSON_VALUE);
-        responseFormat.set("schema", responseSchema());
+        ObjectNode generationConfig = request.putObject("generationConfig");
+        generationConfig.put("responseMimeType", MediaType.APPLICATION_JSON_VALUE);
+        generationConfig.set("responseSchema", responseSchema());
         return request;
     }
 
     private ObjectNode responseSchema() {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("type", "object");
-        root.put("additionalProperties", false);
+        root.put("type", "OBJECT");
         root.putArray("required").add("medicines");
 
         ObjectNode medicines = root.putObject("properties").putObject("medicines");
-        medicines.put("type", "array");
+        medicines.put("type", "ARRAY");
         ObjectNode medicine = medicines.putObject("items");
-        medicine.put("type", "object");
-        medicine.put("additionalProperties", false);
+        medicine.put("type", "OBJECT");
         medicine.putArray("required")
                 .add("rawText")
                 .add("name")
@@ -109,13 +125,13 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
         ObjectNode properties = medicine.putObject("properties");
         properties.putObject("rawText")
-                .put("type", "string")
+                .put("type", "STRING")
                 .put("description", "Exact medicine line visible in the prescription, without invention");
         nullableString(properties.putObject("name"), "Medicine name only, or null when unreadable");
         nullableString(properties.putObject("strength"), "Strength with value and unit, or null when absent or unreadable");
         nullableString(properties.putObject("form"), "Dosage form only, or null when absent or unreadable");
         properties.putObject("confidence")
-                .put("type", "number")
+                .put("type", "NUMBER")
                 .put("minimum", 0.0)
                 .put("maximum", 1.0)
                 .put("description", "Confidence in the visual reading, from 0 to 1");
@@ -123,7 +139,8 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
     }
 
     private void nullableString(ObjectNode node, String description) {
-        node.putArray("type").add("string").add("null");
+        node.put("type", "STRING");
+        node.put("nullable", true);
         node.put("description", description);
     }
 
@@ -141,11 +158,27 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
     }
 
     private ExtractedPrescription parseResponse(JsonNode response) throws JsonProcessingException {
-        if (response == null || !"completed".equals(response.path("status").asText())) {
+        if (response == null || !response.isObject()) {
             throw unavailable();
         }
 
-        String outputText = findOutputText(response.path("steps"));
+        String blockReason = response.path("promptFeedback").path("blockReason").asText(null);
+        if (blockReason != null && !blockReason.isBlank()) {
+            throw unavailable();
+        }
+
+        JsonNode candidates = response.path("candidates");
+        if (!candidates.isArray() || candidates.isEmpty()) {
+            throw unavailable();
+        }
+
+        JsonNode candidate = candidates.get(0);
+        String finishReason = candidate.path("finishReason").asText(null);
+        if (finishReason != null && !finishReason.isBlank() && !"STOP".equals(finishReason)) {
+            throw unavailable();
+        }
+
+        String outputText = findOutputText(candidate.path("content").path("parts"));
         if (outputText == null) {
             throw unavailable();
         }
@@ -177,27 +210,18 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
         return new ExtractedPrescription(List.copyOf(extractedMedicines));
     }
 
-    private String findOutputText(JsonNode steps) {
-        if (!steps.isArray()) {
+    private String findOutputText(JsonNode parts) {
+        if (!parts.isArray()) {
             return null;
         }
-        for (int stepIndex = steps.size() - 1; stepIndex >= 0; stepIndex--) {
-            JsonNode step = steps.get(stepIndex);
-            if (!"model_output".equals(step.path("type").asText())) {
+        for (int partIndex = parts.size() - 1; partIndex >= 0; partIndex--) {
+            JsonNode part = parts.get(partIndex);
+            if (part.path("thought").asBoolean(false)) {
                 continue;
             }
-            JsonNode content = step.path("content");
-            if (!content.isArray()) {
-                continue;
-            }
-            for (int contentIndex = content.size() - 1; contentIndex >= 0; contentIndex--) {
-                JsonNode part = content.get(contentIndex);
-                if ("text".equals(part.path("type").asText())) {
-                    String text = part.path("text").asText(null);
-                    if (text != null && !text.isBlank()) {
-                        return text;
-                    }
-                }
+            String text = part.path("text").asText(null);
+            if (text != null && !text.isBlank()) {
+                return text;
             }
         }
         return null;
@@ -232,5 +256,95 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
     private PrescriptionAiUnavailableException unavailable() {
         return new PrescriptionAiUnavailableException("Prescription AI provider is unavailable");
+    }
+
+    private void logUpstreamHttpFailure(RestClientResponseException exception) {
+        int status = exception.getStatusCode().value();
+        ProviderFailure providerFailure = providerFailure(exception);
+        String category = switch (status) {
+            case 401, 403 -> "authentication";
+            case 429 -> "rate-limit";
+            case 404 -> "model".equals(providerFailure.fieldHint())
+                    ? "model-not-found"
+                    : "upstream-http";
+            default -> status >= 500
+                    ? "provider-server"
+                    : providerFailure.authenticationFailure() ? "authentication" : "request-schema";
+        };
+        log.warn("Gemini prescription request failed: category={} httpStatus={} providerCode={} fieldHint={}",
+                category, status, providerFailure.code(), providerFailure.fieldHint());
+    }
+
+    private void logResourceFailure(ResourceAccessException exception) {
+        Throwable cause = exception.getMostSpecificCause();
+        String type = cause == null ? "unknown" : cause.getClass().getSimpleName();
+        String category = cause instanceof java.net.SocketTimeoutException
+                ? "timeout"
+                : cause instanceof java.net.ConnectException ? "connection" : "network";
+        log.warn("Gemini prescription request failed: category={} causeType={}", category, type);
+    }
+
+    private ProviderFailure providerFailure(RestClientResponseException exception) {
+        try {
+            JsonNode error = objectMapper.readTree(exception.getResponseBodyAsByteArray()).path("error");
+            String errorStatus = safeProviderCode(error.path("status").asText(null));
+            String reason = null;
+            JsonNode details = error.path("details");
+            if (details.isArray()) {
+                for (JsonNode detail : details) {
+                    String candidate = safeProviderCode(detail.path("reason").asText(null));
+                    if (candidate != null) {
+                        reason = candidate;
+                        break;
+                    }
+                }
+            }
+
+            String code = reason != null ? reason : errorStatus != null ? errorStatus : "unknown";
+            String message = error.path("message").asText("").toLowerCase(java.util.Locale.ROOT);
+            boolean authenticationFailure = code.contains("API_KEY")
+                    || code.contains("CREDENTIAL")
+                    || code.contains("TOKEN")
+                    || message.contains("api key")
+                    || message.contains("credential");
+            return new ProviderFailure(code, authenticationFailure, fieldHint(message));
+        } catch (IOException exceptionIgnored) {
+            return new ProviderFailure("unknown", false, "unknown");
+        }
+    }
+
+    private String safeProviderCode(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.toUpperCase(java.util.Locale.ROOT);
+        return normalized.matches("[A-Z0-9_]{1,64}") ? normalized : null;
+    }
+
+    private String fieldHint(String message) {
+        for (String field : List.of(
+                "model", "image", "inline_data", "mime_type", "data", "contents", "parts",
+                "generationconfig", "generation_config", "responsemimetype", "response_mime_type",
+                "responseschema", "response_schema", "schema", "required", "confidence"
+        )) {
+            if (message.contains(field)) {
+                return field;
+            }
+        }
+        return "unknown";
+    }
+
+    private String safeLogValue(String value) {
+        return value != null && value.matches("[A-Za-z0-9._-]{1,100}") ? value : "invalid";
+    }
+
+    private String safeEndpointPath(String value) {
+        return value != null
+                && value.matches("/v1beta/models/[A-Za-z0-9._-]{1,100}:generateContent")
+                ? value
+                : "invalid";
+    }
+
+    private record ProviderFailure(String code, boolean authenticationFailure, String fieldHint) {
     }
 }

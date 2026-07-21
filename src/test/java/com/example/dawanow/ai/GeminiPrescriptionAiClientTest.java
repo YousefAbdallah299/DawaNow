@@ -23,19 +23,25 @@ import java.net.SocketTimeoutException;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+@ExtendWith(OutputCaptureExtension.class)
 class GeminiPrescriptionAiClientTest {
 
     private static final String BASE_URL = "https://gemini.test";
     private static final String API_KEY = "test-key";
     private static final String MODEL = "gemini-test-model";
+    private static final String GENERATE_CONTENT_URL = BASE_URL
+            + GeminiPrescriptionAiClient.GENERATE_CONTENT_PATH_TEMPLATE.formatted(MODEL);
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private MockRestServiceServer server;
@@ -55,20 +61,28 @@ class GeminiPrescriptionAiClientTest {
                 {"medicines":[{"rawText":"Abilify 15 mg tablets","name":"Abilify","strength":"15 mg","form":"tablets","confidence":0.96}]}
                 """;
 
-        server.expect(once(), requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(once(), requestTo(GENERATE_CONTENT_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("x-goog-api-key", API_KEY))
                 .andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
-                .andExpect(jsonPath("$.model").value(MODEL))
-                .andExpect(jsonPath("$.store").value(false))
-                .andExpect(jsonPath("$.input[0].type").value("image"))
-                .andExpect(jsonPath("$.input[0].mime_type").value("image/jpeg"))
-                .andExpect(jsonPath("$.input[0].data").value(Base64.getEncoder().encodeToString(image)))
-                .andExpect(jsonPath("$.input[1].text").value(containsString("in English")))
-                .andExpect(jsonPath("$.input[1].text").value(containsString("Do not return product IDs")))
-                .andExpect(jsonPath("$.response_format.mime_type").value(MediaType.APPLICATION_JSON_VALUE))
-                .andExpect(jsonPath("$.response_format.schema.properties.medicines.items.properties.confidence.minimum").value(0.0))
-                .andExpect(jsonPath("$.response_format.schema.properties.medicines.items.properties.confidence.maximum").value(1.0))
+                .andExpect(jsonPath("$.model").doesNotExist())
+                .andExpect(jsonPath("$.store").doesNotExist())
+                .andExpect(jsonPath("$.contents[0].role").value("user"))
+                .andExpect(jsonPath("$.contents[0].parts[0].inline_data.mime_type").value("image/jpeg"))
+                .andExpect(jsonPath("$.contents[0].parts[0].inline_data.data")
+                        .value(Base64.getEncoder().encodeToString(image)))
+                .andExpect(jsonPath("$.contents[0].parts[1].text").value(containsString("in English")))
+                .andExpect(jsonPath("$.contents[0].parts[1].text")
+                        .value(containsString("Do not return product IDs")))
+                .andExpect(jsonPath("$.generationConfig.responseMimeType")
+                        .value(MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.generationConfig.responseSchema.type").value("OBJECT"))
+                .andExpect(jsonPath("$.generationConfig.responseSchema.properties.medicines.items.properties.name.nullable")
+                        .value(true))
+                .andExpect(jsonPath("$.generationConfig.responseSchema.properties.medicines.items.properties.confidence.minimum")
+                        .value(0.0))
+                .andExpect(jsonPath("$.generationConfig.responseSchema.properties.medicines.items.properties.confidence.maximum")
+                        .value(1.0))
                 .andExpect(content().string(not(containsString("productId"))))
                 .andExpect(content().string(not(containsString("\"quantity\""))))
                 .andRespond(withSuccess(providerResponse(output), MediaType.APPLICATION_JSON));
@@ -89,8 +103,9 @@ class GeminiPrescriptionAiClientTest {
         String output = """
                 {"medicines":[{"rawText":"دواء غير واضح","name":null,"strength":null,"form":null,"confidence":0.2}]}
                 """;
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
-                .andExpect(jsonPath("$.input[1].text").value(containsString("in Arabic")))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andExpect(jsonPath("$.contents[0].parts[0].inline_data.mime_type").value("image/png"))
+                .andExpect(jsonPath("$.contents[0].parts[1].text").value(containsString("in Arabic")))
                 .andRespond(withSuccess(providerResponse(output), MediaType.APPLICATION_JSON));
 
         var medicine = client.analyze(new byte[]{1}, "image/png", "ar", API_KEY).medicines().getFirst();
@@ -104,25 +119,58 @@ class GeminiPrescriptionAiClientTest {
     }
 
     @Test
+    void parsesGenerateContentResponseWithThoughtPartBeforeStructuredOutput() throws Exception {
+        String output = """
+                {"medicines":[{"rawText":"Panadol Extra","name":"Panadol Extra","strength":null,"form":null,"confidence":0.91}]}
+                """;
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withSuccess(providerResponseWithThought(output), MediaType.APPLICATION_JSON));
+
+        var result = client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY);
+
+        assertThat(result.medicines()).singleElement()
+                .satisfies(medicine -> assertThat(medicine.name()).isEqualTo("Panadol Extra"));
+        server.verify();
+    }
+
+    @Test
     void rejectsMalformedStructuredOutput() throws Exception {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withSuccess(providerResponse("not-json"), MediaType.APPLICATION_JSON));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
     }
 
     @Test
-    void rejectsBlockedProviderOutput() {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
-                .andRespond(withSuccess("{\"status\":\"failed\",\"steps\":[]}", MediaType.APPLICATION_JSON));
+    void rejectsBlockedPromptOutput() {
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withSuccess("{\"promptFeedback\":{\"blockReason\":\"SAFETY\"},\"candidates\":[]}",
+                        MediaType.APPLICATION_JSON));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
     }
 
     @Test
-    void rejectsCompletedResponseWithoutModelOutput() {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
-                .andRespond(withSuccess("{\"status\":\"completed\",\"steps\":[]}", MediaType.APPLICATION_JSON));
+    void rejectsResponseWithoutCandidates() {
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withSuccess("{\"candidates\":[]}", MediaType.APPLICATION_JSON));
+
+        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+    }
+
+    @Test
+    void rejectsCandidateWithoutTextOutput() {
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withSuccess("{\"candidates\":[{\"finishReason\":\"STOP\",\"content\":{\"parts\":[]}}]}",
+                        MediaType.APPLICATION_JSON));
+
+        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+    }
+
+    @Test
+    void rejectsNonSuccessfulFinishReason() throws Exception {
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withSuccess(providerResponse("{}", "MAX_TOKENS"), MediaType.APPLICATION_JSON));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
     }
@@ -132,16 +180,16 @@ class GeminiPrescriptionAiClientTest {
         String output = """
                 {"medicines":[{"rawText":"Panadol","name":"Panadol","strength":null,"form":null,"confidence":1.2,"productId":438}]}
                 """;
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withSuccess(providerResponse(output), MediaType.APPLICATION_JSON));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {403, 429, 500, 503})
+    @ValueSource(ints = {400, 403, 429, 500, 503})
     void mapsProviderHttpErrorsToUnavailable(int status) {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withStatus(HttpStatusCode.valueOf(status)));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
@@ -149,11 +197,48 @@ class GeminiPrescriptionAiClientTest {
 
     @Test
     void mapsInvalidPerRequestKeyAuthenticationFailureToUnavailable() {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andExpect(header("x-goog-api-key", "invalid-key"))
                 .andRespond(withStatus(HttpStatusCode.valueOf(401)));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", "invalid-key"));
+    }
+
+    @Test
+    void classifiesMissingConfiguredModelWithoutExposingProviderResponse(CapturedOutput output) {
+        String providerResponse = """
+                {"error":{"code":404,"message":"Configured model was not found","status":"NOT_FOUND"}}
+                """;
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withStatus(HttpStatusCode.valueOf(404))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(providerResponse));
+
+        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+
+        assertThat(output).contains("category=model-not-found")
+                .doesNotContain(providerResponse);
+    }
+
+    @Test
+    void classifiesUnsupportedImageWithoutExposingProviderResponse(CapturedOutput output) {
+        String providerResponse = """
+                {"error":{"code":400,"message":"Image input is not supported", "status":"INVALID_ARGUMENT", "details":[{"reason":"IMAGE_NOT_SUPPORTED"}]}}
+                """;
+        server.expect(requestTo(GENERATE_CONTENT_URL))
+                .andRespond(withStatus(HttpStatusCode.valueOf(400))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(providerResponse));
+
+        assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
+
+        assertThat(output).contains("category=request-schema")
+                .contains("httpStatus=400")
+                .contains("providerCode=IMAGE_NOT_SUPPORTED")
+                .contains("fieldHint=image")
+                .doesNotContain(providerResponse)
+                .doesNotContain(API_KEY)
+                .doesNotContain(Base64.getEncoder().encodeToString(new byte[]{1}));
     }
 
     @Test
@@ -166,7 +251,7 @@ class GeminiPrescriptionAiClientTest {
 
     @Test
     void mapsTimeoutToUnavailable() {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withException(new SocketTimeoutException("timed out")));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
@@ -174,20 +259,31 @@ class GeminiPrescriptionAiClientTest {
 
     @Test
     void mapsConnectionFailureToUnavailable() {
-        server.expect(requestTo(BASE_URL + GeminiPrescriptionAiClient.INTERACTIONS_PATH))
+        server.expect(requestTo(GENERATE_CONTENT_URL))
                 .andRespond(withException(new ConnectException("connection refused")));
 
         assertUnavailable(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY));
     }
 
     private String providerResponse(String output) throws JsonProcessingException {
+        return providerResponse(output, "STOP");
+    }
+
+    private String providerResponse(String output, String finishReason) throws JsonProcessingException {
         ObjectNode response = objectMapper.createObjectNode();
-        response.put("status", "completed");
-        ObjectNode step = response.putArray("steps").addObject();
-        step.put("type", "model_output");
-        ObjectNode content = step.putArray("content").addObject();
-        content.put("type", "text");
-        content.put("text", output);
+        ObjectNode candidate = response.putArray("candidates").addObject();
+        candidate.put("finishReason", finishReason);
+        candidate.putObject("content").putArray("parts").addObject().put("text", output);
+        return objectMapper.writeValueAsString(response);
+    }
+
+    private String providerResponseWithThought(String output) throws JsonProcessingException {
+        ObjectNode response = objectMapper.createObjectNode();
+        ObjectNode candidate = response.putArray("candidates").addObject();
+        candidate.put("finishReason", "STOP");
+        var parts = candidate.putObject("content").putArray("parts");
+        parts.addObject().put("thought", true).put("text", "private model thought");
+        parts.addObject().put("text", output);
         return objectMapper.writeValueAsString(response);
     }
 

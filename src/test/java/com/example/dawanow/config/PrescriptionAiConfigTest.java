@@ -50,4 +50,10 @@ class PrescriptionAiConfigTest {
         contextRunner.run(context -> assertThat(context.getBean(PrescriptionAiClient.class))
                 .isInstanceOf(GeminiPrescriptionAiClient.class));
     }
+
+    @Test
+    void defaultsToOfficialStableGeminiModel() {
+        assertThat(new PrescriptionAiProperties().getGemini().getModel())
+                .isEqualTo("gemini-3.5-flash");
+    }
 }
