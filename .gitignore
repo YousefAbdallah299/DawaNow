@@ -37,6 +37,9 @@ build/
 *.local
 application-local.properties
 
+# Activate seed data by setting SEED_ENABLED=true in Docker or
+# adding dawanow.data.seed.enabled=true to application-local.properties.
+
 ### Firebase credentials ###
 firebase-service-account.json
 dawanow-1b84f-firebase-adminsdk-fbsvc-96ab46258a.json

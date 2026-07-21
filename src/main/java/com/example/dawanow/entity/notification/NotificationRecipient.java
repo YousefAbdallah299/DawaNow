@@ -85,6 +85,7 @@ public class NotificationRecipient {
         this.notification = notification;
         this.pharmacistId = pharmacistId;
         this.status = Status.PENDING;
+        this.sentAt = Instant.now();
         this.createdAt = Instant.now();
     }
 

@@ -1,6 +1,7 @@
 package com.example.dawanow.service;
 
 import com.example.dawanow.dtos.response.NotificationResponse;
+import com.example.dawanow.entity.Pharmacist;
 import com.example.dawanow.entity.notification.Notification;
 import com.example.dawanow.entity.notification.NotificationRecipient;
 import com.example.dawanow.mapper.NotificationMapper;
@@ -23,6 +24,7 @@ public class NotificationService {
     private final NotificationRecipientRepository recipientRepository;
     private final NotificationMapper notificationMapper;
     private final NotificationDispatcher notificationDispatcher;
+    private final PharmacistService pharmacistService;
 
     public Page<NotificationResponse> list(Long pharmacistId, NotificationRecipient.Status status, Pageable pageable) {
         Page<NotificationRecipient> page = status == null
@@ -47,14 +49,11 @@ public class NotificationService {
     }
 
     @Transactional
-    public void sendToPharmacists(Notification.Category category, String title, String body,
-                                  Map<String, Object> dataPayload, List<Long> recipientPharmacistIds) {
+    public void sendToPharmacists(Notification notification, List<Long> recipientPharmacistIds) {
         if (recipientPharmacistIds.isEmpty()) {
             return;
         }
-
-        Notification notification = notificationRepository.save(
-                new Notification(category, title, body, dataPayload));
+        notificationRepository.save(notification);
 
         List<NotificationRecipient> recipients = recipientPharmacistIds.stream()
                 .map(pharmacistId -> new NotificationRecipient(notification, pharmacistId))
@@ -62,5 +61,18 @@ public class NotificationService {
         recipientRepository.saveAll(recipients);
 
         notificationDispatcher.dispatch(notification, recipients);
+    }
+
+    @Transactional
+    public void sendToPharmacies(Notification notification, List<Long> pharmacyIds) {
+        Map<Long, List<Pharmacist>> activeByPharmacy = pharmacistService.findActivePharmacistsByPharmaciesId(pharmacyIds);
+
+        List<Long> pharmacistIds = activeByPharmacy.values().stream()
+                .flatMap(List::stream)
+                .map(Pharmacist::getId)
+                .distinct()
+                .toList();
+
+        sendToPharmacists(notification, pharmacistIds);
     }
 }

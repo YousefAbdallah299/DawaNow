@@ -40,7 +40,7 @@ public class Notification {
 
     public enum Category {
         PHARMACY_INVITATION,
-        ORDER_IN_AREA,
+        REQUEST_IN_AREA,
         OFFER_ACCEPTED
     }
 
