@@ -40,3 +40,5 @@ application-local.properties
 ### Firebase credentials ###
 firebase-service-account.json
 dawanow-1b84f-firebase-adminsdk-fbsvc-96ab46258a.json
+
+src/main/resources/firebase-service-account.json
