@@ -68,9 +68,9 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
         }
 
         try {
-            String requestBody = objectMapper.writeValueAsString(buildRequest(image, contentType));
-            log.info("Sending ITI prescription AI request: endpointUrl={} headers={{Authorization=Bearer [REDACTED], Content-Type={}}} body={}",
-                    endpointUrl, MediaType.APPLICATION_JSON_VALUE, requestBody);
+            ObjectNode request = buildRequest(image, contentType);
+            String requestBody = objectMapper.writeValueAsString(request);
+            log.info("Sending ITI prescription AI request: endpointUrl={} model={} imageSize={} contentType={}", endpointUrl, model, image.length, contentType);
             String responseBody = restClient.post()
                     .uri(endpointUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -157,7 +157,11 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
 
     private PrescriptionAiUnavailableException mapUpstreamHttpFailure(RestClientResponseException exception) {
         int status = exception.getStatusCode().value();
-        log.warn("ITI prescription AI request failed: category=upstream-http httpStatus={}", status);
+        log.warn(
+                "ITI AI error: status={} responseBody={}",
+                status,
+                exception.getResponseBodyAsString()
+        );
         return switch (status) {
             case 400 -> failure(HttpStatus.BAD_REQUEST,
                     "The AI provider rejected the prescription image or analysis request");

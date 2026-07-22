@@ -29,6 +29,7 @@ public class PrescriptionAiConfig {
 
     private PrescriptionAiClient itiClient(PrescriptionAiProperties.Iti properties) {
         HttpClient httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(properties.getConnectTimeout())
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
