@@ -6,6 +6,7 @@ import com.example.dawanow.ai.DemoPrescriptionAiClient;
 import com.example.dawanow.ai.GeminiPrescriptionAiClient;
 import com.example.dawanow.ai.PrescriptionAiClient;
 import com.example.dawanow.ai.UnavailablePrescriptionAiClient;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -55,5 +56,11 @@ class PrescriptionAiConfigTest {
     void defaultsToOfficialStableGeminiModel() {
         assertThat(new PrescriptionAiProperties().getGemini().getModel())
                 .isEqualTo("gemini-3.5-flash");
+    }
+
+    @Test
+    void defaultsToSixtySecondGeminiReadTimeout() {
+        assertThat(new PrescriptionAiProperties().getGemini().getReadTimeout())
+                .isEqualTo(Duration.ofSeconds(60));
     }
 }

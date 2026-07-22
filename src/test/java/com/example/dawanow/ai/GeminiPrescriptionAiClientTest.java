@@ -53,11 +53,11 @@ class GeminiPrescriptionAiClientTest {
     void setUp() {
         RestClient.Builder builder = RestClient.builder().baseUrl(BASE_URL);
         server = MockRestServiceServer.bindTo(builder).build();
-        client = new GeminiPrescriptionAiClient(builder.build(), objectMapper, MODEL);
+        client = new GeminiPrescriptionAiClient(builder.build(), objectMapper, MODEL, BASE_URL, false);
     }
 
     @Test
-    void sendsSecureStructuredEnglishRequestAndParsesResponse() throws Exception {
+    void sendsSecureStructuredEnglishRequestAndParsesResponse(CapturedOutput capturedOutput) throws Exception {
         byte[] image = new byte[]{1, 2, 3, 4};
         String output = """
                 {"medicines":[{"rawText":"Abilify 15 mg tablets","name":"Abilify","strength":"15 mg","form":"tablets","confidence":0.96}]}
@@ -97,6 +97,14 @@ class GeminiPrescriptionAiClientTest {
         assertThat(result.medicines().getFirst().strength()).isEqualTo("15 mg");
         assertThat(result.medicines().getFirst().form()).isEqualTo("tablets");
         assertThat(result.medicines().getFirst().confidence()).isEqualTo(0.96);
+        assertThat(capturedOutput)
+                .contains("Gemini prescription request configuration")
+                .contains("endpointUrl=" + GENERATE_CONTENT_URL)
+                .contains("model=" + MODEL)
+                .contains("apiVersion=v1beta")
+                .contains("geminiModelEnvironmentOverride=false")
+                .doesNotContain(API_KEY)
+                .doesNotContain(Base64.getEncoder().encodeToString(image));
         server.verify();
     }
 

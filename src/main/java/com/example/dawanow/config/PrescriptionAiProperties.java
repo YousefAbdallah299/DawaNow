@@ -32,7 +32,7 @@ public class PrescriptionAiProperties {
         private String baseUrl = "https://generativelanguage.googleapis.com";
         private String model = "gemini-3.5-flash";
         private Duration connectTimeout = Duration.ofSeconds(5);
-        private Duration readTimeout = Duration.ofSeconds(30);
+        private Duration readTimeout = Duration.ofSeconds(60);
 
         public String getBaseUrl() {
             return baseUrl;

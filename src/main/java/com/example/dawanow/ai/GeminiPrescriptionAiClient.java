@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -25,6 +27,7 @@ import org.springframework.web.client.ResourceAccessException;
 
 public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
 
+    static final String API_VERSION = "v1beta";
     static final String GENERATE_CONTENT_PATH_TEMPLATE = "/v1beta/models/%s:generateContent";
     private static final String API_KEY_HEADER = "x-goog-api-key";
     private static final Logger log = LoggerFactory.getLogger(GeminiPrescriptionAiClient.class);
@@ -36,20 +39,36 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
     private final String generateContentPath;
+    private final String model;
+    private final String effectiveEndpointUrl;
+    private final boolean modelOverriddenByEnvironment;
 
     public GeminiPrescriptionAiClient(
             RestClient restClient,
             ObjectMapper objectMapper,
             String model
     ) {
+        this(restClient, objectMapper, model, null, false);
+    }
+
+    public GeminiPrescriptionAiClient(
+            RestClient restClient,
+            ObjectMapper objectMapper,
+            String model,
+            String baseUrl,
+            boolean modelOverriddenByEnvironment
+    ) {
         if (model == null || !model.matches("[A-Za-z0-9._-]{1,100}")) {
             throw new IllegalArgumentException("Gemini model configuration is invalid");
         }
         this.restClient = restClient;
         this.objectMapper = objectMapper;
+        this.model = model;
         this.generateContentPath = GENERATE_CONTENT_PATH_TEMPLATE.formatted(model);
-        log.info("Gemini prescription client configured: endpointPath={} model={}",
-                safeEndpointPath(generateContentPath), safeLogValue(model));
+        this.effectiveEndpointUrl = safeEffectiveEndpointUrl(baseUrl, generateContentPath);
+        this.modelOverriddenByEnvironment = modelOverriddenByEnvironment;
+        log.info("Gemini prescription client configured: endpointUrl={} model={} apiVersion={} geminiModelEnvironmentOverride={}",
+                effectiveEndpointUrl, safeLogValue(model), API_VERSION, modelOverriddenByEnvironment);
     }
 
     @Override
@@ -62,6 +81,8 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
         if (apiKey == null || apiKey.isBlank()) {
             throw failure(HttpStatus.BAD_REQUEST, "X-Gemini-Api-Key header is required");
         }
+        log.info("Gemini prescription request configuration: endpointUrl={} model={} apiVersion={} geminiModelEnvironmentOverride={}",
+                effectiveEndpointUrl, safeLogValue(model), API_VERSION, modelOverriddenByEnvironment);
         try {
             String requestBody = objectMapper.writeValueAsString(buildRequest(image, contentType, language));
             String responseBody = restClient.post()
@@ -385,6 +406,33 @@ public class GeminiPrescriptionAiClient implements PrescriptionAiClient {
                 && value.matches("/v1beta/models/[A-Za-z0-9._-]{1,100}:generateContent")
                 ? value
                 : "invalid";
+    }
+
+    private String safeEffectiveEndpointUrl(String baseUrl, String endpointPath) {
+        if (baseUrl == null) {
+            return safeEndpointPath(endpointPath);
+        }
+        try {
+            URI base = URI.create(baseUrl);
+            String scheme = base.getScheme();
+            if (scheme == null
+                    || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                    || base.getHost() == null
+                    || base.getUserInfo() != null) {
+                return "invalid";
+            }
+            return new URI(
+                    scheme.toLowerCase(java.util.Locale.ROOT),
+                    null,
+                    base.getHost(),
+                    base.getPort(),
+                    endpointPath,
+                    null,
+                    null
+            ).toASCIIString();
+        } catch (IllegalArgumentException | URISyntaxException exception) {
+            return "invalid";
+        }
     }
 
     private record ProviderFailure(String code, boolean authenticationFailure, String fieldHint) {

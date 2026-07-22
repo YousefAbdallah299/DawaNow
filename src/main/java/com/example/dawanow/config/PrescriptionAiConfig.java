@@ -9,6 +9,7 @@ import java.net.http.HttpClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -17,15 +18,21 @@ import org.springframework.web.client.RestClient;
 public class PrescriptionAiConfig {
 
     @Bean
-    PrescriptionAiClient prescriptionAiClient(PrescriptionAiProperties properties) {
+    PrescriptionAiClient prescriptionAiClient(
+            PrescriptionAiProperties properties,
+            Environment environment
+    ) {
         return switch (properties.getProvider()) {
             case DEMO -> new DemoPrescriptionAiClient();
             case DISABLED -> new UnavailablePrescriptionAiClient();
-            case GEMINI -> geminiClient(properties.getGemini());
+            case GEMINI -> geminiClient(properties.getGemini(), environment);
         };
     }
 
-    private PrescriptionAiClient geminiClient(PrescriptionAiProperties.Gemini properties) {
+    private PrescriptionAiClient geminiClient(
+            PrescriptionAiProperties.Gemini properties,
+            Environment environment
+    ) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.getConnectTimeout())
                 .build();
@@ -39,8 +46,15 @@ public class PrescriptionAiConfig {
         return new GeminiPrescriptionAiClient(
                 restClient,
                 new ObjectMapper(),
-                properties.getModel()
+                properties.getModel(),
+                stripTrailingSlash(properties.getBaseUrl()),
+                isGeminiModelOverridden(environment)
         );
+    }
+
+    private boolean isGeminiModelOverridden(Environment environment) {
+        String value = environment.getProperty("GEMINI_MODEL");
+        return value != null && !value.isBlank();
     }
 
     private String stripTrailingSlash(String value) {
