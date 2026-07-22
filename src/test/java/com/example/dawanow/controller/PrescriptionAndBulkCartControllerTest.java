@@ -57,7 +57,7 @@ class PrescriptionAndBulkCartControllerTest {
         mockMvc.perform(multipart("/api/v1/prescriptions/analyze")
                         .file(image)
                         .param("lang", "en")
-                        .header("X-Gemini-Api-Key", "valid-key")
+                        .header("X-AI-Api-Key", "valid-key")
                         .with(user("patient")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -78,72 +78,72 @@ class PrescriptionAndBulkCartControllerTest {
     }
 
     @Test
-    void mapsMissingGeminiHeaderToBadRequestWithUsefulMessage() throws Exception {
+    void mapsMissingAiHeaderToBadRequestWithUsefulMessage() throws Exception {
         MockMultipartFile image = jpeg();
         when(prescriptionService.analyze(any(), eq("en"), isNull()))
                 .thenThrow(new PrescriptionAiUnavailableException(
-                        HttpStatus.BAD_REQUEST, "X-Gemini-Api-Key header is required"));
+                        HttpStatus.BAD_REQUEST, "X-AI-Api-Key header is required"));
 
         mockMvc.perform(multipart("/api/v1/prescriptions/analyze")
                         .file(image)
                         .with(user("patient")))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("X-Gemini-Api-Key header is required"));
+                .andExpect(jsonPath("$.message").value("X-AI-Api-Key header is required"));
     }
 
     @Test
-    void mapsInvalidGeminiHeaderToUnauthorizedWithUsefulMessage() throws Exception {
+    void mapsInvalidAiHeaderToUnauthorizedWithUsefulMessage() throws Exception {
         MockMultipartFile image = jpeg();
         when(prescriptionService.analyze(any(), eq("en"), eq("invalid-key")))
                 .thenThrow(new PrescriptionAiUnavailableException(
-                        HttpStatus.UNAUTHORIZED, "The Gemini API key is invalid or was not accepted"));
+                        HttpStatus.UNAUTHORIZED, "The AI API key is invalid or was not accepted"));
 
         mockMvc.perform(multipart("/api/v1/prescriptions/analyze")
                         .file(image)
-                        .header("X-Gemini-Api-Key", "invalid-key")
+                        .header("X-AI-Api-Key", "invalid-key")
                         .with(user("patient")))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.message").value("The Gemini API key is invalid or was not accepted"));
+                .andExpect(jsonPath("$.message").value("The AI API key is invalid or was not accepted"));
     }
 
     @Test
-    void mapsGeminiRateLimitToTooManyRequestsWithUsefulMessage() throws Exception {
+    void mapsAiRateLimitToTooManyRequestsWithUsefulMessage() throws Exception {
         MockMultipartFile image = jpeg();
         when(prescriptionService.analyze(any(), eq("en"), eq("valid-key")))
                 .thenThrow(new PrescriptionAiUnavailableException(
                         HttpStatus.TOO_MANY_REQUESTS,
-                        "Gemini rate limit or quota was exceeded. Please try again later"));
+                        "The AI provider rate limit was exceeded. Please try again later"));
 
         mockMvc.perform(multipart("/api/v1/prescriptions/analyze")
                         .file(image)
-                        .header("X-Gemini-Api-Key", "valid-key")
+                        .header("X-AI-Api-Key", "valid-key")
                         .with(user("patient")))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.message").value(
-                        "Gemini rate limit or quota was exceeded. Please try again later"));
+                        "The AI provider rate limit was exceeded. Please try again later"));
     }
 
     @Test
-    void mapsGeminiTimeoutToGatewayTimeoutWithUsefulMessage() throws Exception {
+    void mapsAiTimeoutToGatewayTimeoutWithUsefulMessage() throws Exception {
         MockMultipartFile image = jpeg();
         when(prescriptionService.analyze(any(), eq("en"), eq("valid-key")))
                 .thenThrow(new PrescriptionAiUnavailableException(
                         HttpStatus.GATEWAY_TIMEOUT,
-                        "Gemini did not respond before the request timed out"));
+                        "The AI provider did not respond before the request timed out"));
 
         mockMvc.perform(multipart("/api/v1/prescriptions/analyze")
                         .file(image)
-                        .header("X-Gemini-Api-Key", "valid-key")
+                        .header("X-AI-Api-Key", "valid-key")
                         .with(user("patient")))
                 .andExpect(status().isGatewayTimeout())
                 .andExpect(jsonPath("$.message").value(
-                        "Gemini did not respond before the request timed out"));
+                        "The AI provider did not respond before the request timed out"));
     }
 
     @Test
-    void documentsOptionalGeminiApiKeyHeader() throws Exception {
+    void documentsOptionalAiApiKeyHeader() throws Exception {
         String parameterPath = "$.paths['/api/v1/prescriptions/analyze'].post.parameters"
-                + "[?(@.name == 'X-Gemini-Api-Key')]";
+                + "[?(@.name == 'X-AI-Api-Key')]";
 
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())

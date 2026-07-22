@@ -34,10 +34,10 @@ class PrescriptionServiceTest {
     void analyzesValidJpegAndMatchesEveryMedicine() {
         byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00};
         var file = new MockMultipartFile("image", "rx.jpg", "image/jpeg", jpeg);
-        var medicine = new ExtractedMedicine("Abilify", "Abilify", "15 mg", "tablets", 0.9);
+        var medicine = new ExtractedMedicine("Abilify", "Abilify", null, null, 1.0);
         var matched = new PrescriptionMedicineResponse(
-                UUID.randomUUID(), "Abilify", "Abilify", "15 mg", "tablets",
-                PrescriptionMatchStatus.MATCHED, 0.9, List.of()
+                UUID.randomUUID(), "Abilify", "Abilify", null, null,
+                PrescriptionMatchStatus.MATCHED, 1.0, List.of()
         );
         when(aiClient.analyze(jpeg, "image/jpeg", "en", "request-key"))
                 .thenReturn(new ExtractedPrescription(List.of(medicine)));

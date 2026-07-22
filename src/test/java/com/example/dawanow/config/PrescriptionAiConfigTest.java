@@ -3,7 +3,7 @@ package com.example.dawanow.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.dawanow.ai.DemoPrescriptionAiClient;
-import com.example.dawanow.ai.GeminiPrescriptionAiClient;
+import com.example.dawanow.ai.ItiPrescriptionAiClient;
 import com.example.dawanow.ai.PrescriptionAiClient;
 import com.example.dawanow.ai.UnavailablePrescriptionAiClient;
 import java.time.Duration;
@@ -16,13 +16,13 @@ class PrescriptionAiConfigTest {
             .withUserConfiguration(PrescriptionAiConfig.class);
 
     @Test
-    void selectsGeminiWhenConfigured() {
+    void selectsItiWhenConfigured() {
         contextRunner.withPropertyValues(
-                        "dawanow.ai.prescription.provider=gemini",
-                        "dawanow.ai.prescription.gemini.base-url=https://gemini.test"
+                        "dawanow.ai.prescription.provider=iti",
+                        "dawanow.ai.prescription.iti.endpoint-url=http://iti.test/multimodal-chat"
                 )
                 .run(context -> assertThat(context.getBean(PrescriptionAiClient.class))
-                        .isInstanceOf(GeminiPrescriptionAiClient.class));
+                        .isInstanceOf(ItiPrescriptionAiClient.class));
     }
 
     @Test
@@ -40,27 +40,29 @@ class PrescriptionAiConfigTest {
     }
 
     @Test
-    void selectsGeminiWithoutServerSideKeyConfiguration() {
-        contextRunner.withPropertyValues("dawanow.ai.prescription.provider=gemini")
+    void selectsItiWithoutServerSideKeyConfiguration() {
+        contextRunner.withPropertyValues("dawanow.ai.prescription.provider=iti")
                 .run(context -> assertThat(context.getBean(PrescriptionAiClient.class))
-                        .isInstanceOf(GeminiPrescriptionAiClient.class));
+                        .isInstanceOf(ItiPrescriptionAiClient.class));
     }
 
     @Test
-    void defaultsToGeminiWhenConfigurationIsMissing() {
+    void defaultsToItiWhenConfigurationIsMissing() {
         contextRunner.run(context -> assertThat(context.getBean(PrescriptionAiClient.class))
-                .isInstanceOf(GeminiPrescriptionAiClient.class));
+                .isInstanceOf(ItiPrescriptionAiClient.class));
     }
 
     @Test
-    void defaultsToOfficialStableGeminiModel() {
-        assertThat(new PrescriptionAiProperties().getGemini().getModel())
-                .isEqualTo("gemini-3.5-flash");
+    void defaultsToConfiguredQwenModelAndItiEndpoint() {
+        PrescriptionAiProperties properties = new PrescriptionAiProperties();
+        assertThat(properties.getIti().getModel()).isEqualTo("qwen.qwen3-vl-235b-a22b");
+        assertThat(properties.getIti().getEndpointUrl())
+                .isEqualTo("http://apiaccess.iti.net.eg/api/v1/student/multimodal-chat");
     }
 
     @Test
-    void defaultsToSixtySecondGeminiReadTimeout() {
-        assertThat(new PrescriptionAiProperties().getGemini().getReadTimeout())
+    void defaultsToSixtySecondItiReadTimeout() {
+        assertThat(new PrescriptionAiProperties().getIti().getReadTimeout())
                 .isEqualTo(Duration.ofSeconds(60));
     }
 }

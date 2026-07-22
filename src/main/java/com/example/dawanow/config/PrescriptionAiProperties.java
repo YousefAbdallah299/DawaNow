@@ -6,8 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "dawanow.ai.prescription")
 public class PrescriptionAiProperties {
 
-    private Provider provider = Provider.GEMINI;
-    private final Gemini gemini = new Gemini();
+    private Provider provider = Provider.ITI;
+    private final Iti iti = new Iti();
 
     public Provider getProvider() {
         return provider;
@@ -17,29 +17,29 @@ public class PrescriptionAiProperties {
         this.provider = provider;
     }
 
-    public Gemini getGemini() {
-        return gemini;
+    public Iti getIti() {
+        return iti;
     }
 
     public enum Provider {
-        GEMINI,
+        ITI,
         DEMO,
         DISABLED
     }
 
-    public static class Gemini {
+    public static class Iti {
 
-        private String baseUrl = "https://generativelanguage.googleapis.com";
-        private String model = "gemini-3.5-flash";
+        private String endpointUrl = "http://apiaccess.iti.net.eg/api/v1/student/multimodal-chat";
+        private String model = "qwen.qwen3-vl-235b-a22b";
         private Duration connectTimeout = Duration.ofSeconds(5);
         private Duration readTimeout = Duration.ofSeconds(60);
 
-        public String getBaseUrl() {
-            return baseUrl;
+        public String getEndpointUrl() {
+            return endpointUrl;
         }
 
-        public void setBaseUrl(String baseUrl) {
-            this.baseUrl = baseUrl;
+        public void setEndpointUrl(String endpointUrl) {
+            this.endpointUrl = endpointUrl;
         }
 
         public String getModel() {

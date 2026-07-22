@@ -37,14 +37,14 @@ public class PrescriptionController {
             @RequestPart("image") MultipartFile image,
             @RequestParam(defaultValue = "en") String lang,
             @Parameter(
-                    name = "X-Gemini-Api-Key",
-                    description = "Gemini API key used only for this prescription analysis request",
+                    name = "X-AI-Api-Key",
+                    description = "AI provider API key used only for this prescription analysis request",
                     in = ParameterIn.HEADER,
                     required = false
             )
-            @RequestHeader(value = "X-Gemini-Api-Key", required = false) String geminiApiKey
+            @RequestHeader(value = "X-AI-Api-Key", required = false) String aiApiKey
     ) {
-        PrescriptionAnalysisResponse response = prescriptionService.analyze(image, lang, geminiApiKey);
+        PrescriptionAnalysisResponse response = prescriptionService.analyze(image, lang, aiApiKey);
         return ResponseEntity.ok(ApiResponse.success("Prescription analyzed", response));
     }
 }

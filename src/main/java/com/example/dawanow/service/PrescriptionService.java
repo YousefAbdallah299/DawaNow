@@ -21,7 +21,7 @@ public class PrescriptionService {
     private final PrescriptionAiClient prescriptionAiClient;
     private final PrescriptionProductMatchingService matchingService;
 
-    public PrescriptionAnalysisResponse analyze(MultipartFile image, String lang, String geminiApiKey) {
+    public PrescriptionAnalysisResponse analyze(MultipartFile image, String lang, String aiApiKey) {
         String language = normalizeLanguage(lang);
         validateImage(image);
 
@@ -37,7 +37,7 @@ public class PrescriptionService {
                 bytes,
                 image.getContentType(),
                 language,
-                geminiApiKey
+                aiApiKey
         );
         if (extracted == null || extracted.medicines() == null) {
             return new PrescriptionAnalysisResponse(List.of());

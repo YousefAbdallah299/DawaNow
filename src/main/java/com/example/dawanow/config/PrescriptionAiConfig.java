@@ -1,7 +1,7 @@
 package com.example.dawanow.config;
 
 import com.example.dawanow.ai.DemoPrescriptionAiClient;
-import com.example.dawanow.ai.GeminiPrescriptionAiClient;
+import com.example.dawanow.ai.ItiPrescriptionAiClient;
 import com.example.dawanow.ai.PrescriptionAiClient;
 import com.example.dawanow.ai.UnavailablePrescriptionAiClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -9,7 +9,6 @@ import java.net.http.HttpClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -19,20 +18,16 @@ public class PrescriptionAiConfig {
 
     @Bean
     PrescriptionAiClient prescriptionAiClient(
-            PrescriptionAiProperties properties,
-            Environment environment
+            PrescriptionAiProperties properties
     ) {
         return switch (properties.getProvider()) {
             case DEMO -> new DemoPrescriptionAiClient();
             case DISABLED -> new UnavailablePrescriptionAiClient();
-            case GEMINI -> geminiClient(properties.getGemini(), environment);
+            case ITI -> itiClient(properties.getIti());
         };
     }
 
-    private PrescriptionAiClient geminiClient(
-            PrescriptionAiProperties.Gemini properties,
-            Environment environment
-    ) {
+    private PrescriptionAiClient itiClient(PrescriptionAiProperties.Iti properties) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.getConnectTimeout())
                 .build();
@@ -40,24 +35,13 @@ public class PrescriptionAiConfig {
         requestFactory.setReadTimeout(properties.getReadTimeout());
 
         RestClient restClient = RestClient.builder()
-                .baseUrl(stripTrailingSlash(properties.getBaseUrl()))
                 .requestFactory(requestFactory)
                 .build();
-        return new GeminiPrescriptionAiClient(
+        return new ItiPrescriptionAiClient(
                 restClient,
                 new ObjectMapper(),
-                properties.getModel(),
-                stripTrailingSlash(properties.getBaseUrl()),
-                isGeminiModelOverridden(environment)
+                properties.getEndpointUrl(),
+                properties.getModel()
         );
-    }
-
-    private boolean isGeminiModelOverridden(Environment environment) {
-        String value = environment.getProperty("GEMINI_MODEL");
-        return value != null && !value.isBlank();
-    }
-
-    private String stripTrailingSlash(String value) {
-        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 }
