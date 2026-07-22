@@ -49,7 +49,9 @@ public class MedicineRequest {
     private RequestStatus status = RequestStatus.SEARCHING;
 
     @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime createdAt ;
+
+    private LocalDateTime expiresAt ;
 
     @OneToMany(mappedBy = "request", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RequestItem> items = new ArrayList<>();
