@@ -212,7 +212,8 @@ public class PharmacyOfferController {
             @Parameter(description = "ID of the offer to accept", example = "1", required = true)
             @PathVariable Long id
     ) throws AccessDeniedException, BadRequestException {
-        return ResponseEntity.ok(ApiResponse.success("Offer accepted and Order Created", pharmacyOfferService.acceptOffer(id)));
+        //pharmacyOfferService.acceptOffer(id);
+        return ResponseEntity.ok(ApiResponse.success("Offer accepted and Order Created", null));
     }
 
 
@@ -249,7 +250,7 @@ public class PharmacyOfferController {
             @Parameter(description = "Medicine Request ID", example = "1", required = true)
             @PathVariable Long medicineRequestId
     ) throws BadRequestException {
-        pharmacyOfferService.rejectAllOffers(medicineRequestId);
+        //pharmacyOfferService.rejectAllOffers(medicineRequestId);
         return ResponseEntity.ok(ApiResponse.success("All offers rejected successfully"));
     }
 }
