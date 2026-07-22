@@ -17,6 +17,7 @@ import com.example.dawanow.exception.PrescriptionAiUnavailableException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.EOFException;
 import java.net.SocketTimeoutException;
 import java.util.Base64;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +60,7 @@ class ItiPrescriptionAiClientTest {
                 .andExpect(header("Content-Type", MediaType.APPLICATION_JSON_VALUE))
                 .andExpect(jsonPath("$.model_id").value(MODEL))
                 .andExpect(jsonPath("$.messages[0].role").value("user"))
-                .andExpect(jsonPath("$.messages[0].text").value(containsString("Return ONLY JSON")))
+                .andExpect(jsonPath("$.messages[0].text").value(containsString("Return ONLY valid JSON")))
                 .andExpect(jsonPath("$.messages[0].images[0].format").value("jpeg"))
                 .andExpect(jsonPath("$.messages[0].images[0].data_base64").value(encodedImage))
                 .andExpect(jsonPath("$.max_tokens").value(500))
@@ -77,7 +78,11 @@ class ItiPrescriptionAiClientTest {
             assertThat(medicine.form()).isNull();
             assertThat(medicine.confidence()).isEqualTo(1.0);
         });
-        assertThat(capturedOutput).doesNotContain(API_KEY).doesNotContain(encodedImage);
+        assertThat(capturedOutput)
+                .contains("Sending ITI prescription AI request")
+                .contains(encodedImage)
+                .contains("Authorization=Bearer [REDACTED]")
+                .doesNotContain(API_KEY);
         server.verify();
     }
 
@@ -161,6 +166,20 @@ class ItiPrescriptionAiClientTest {
                 .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
                     assertThat(exception.getStatus()).isEqualTo(HttpStatus.GATEWAY_TIMEOUT);
                     assertThat(exception.getMessage()).contains("timed out");
+                });
+        server.verify();
+    }
+
+    @Test
+    void mapsPrematureEofToBadGatewayWithClearMessage() {
+        server.expect(requestTo(ENDPOINT_URL))
+                .andRespond(withException(new EOFException("connection closed by upstream")));
+
+        assertThatThrownBy(() -> client.analyze(new byte[]{1}, "image/jpeg", "en", API_KEY))
+                .isInstanceOfSatisfying(PrescriptionAiUnavailableException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.BAD_GATEWAY);
+                    assertThat(exception.getMessage()).isEqualTo(
+                            "The AI provider closed the connection before returning a response. Please try again later");
                 });
         server.verify();
     }

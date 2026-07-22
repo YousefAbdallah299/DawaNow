@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.EOFException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -33,9 +34,7 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
     private static final double COMPATIBILITY_CONFIDENCE = 1.0;
     private static final int MAX_TOKENS = 500;
     private static final String PROMPT = """
-            Extract all medicines from this prescription. Return ONLY JSON in this exact format: {"medicines":["medicine name"]}.
-            Include only medicine names that are clearly visible. Omit unclear names instead of guessing.
-            Do not return strength, form, confidence, product IDs, prices, images, cart quantities, or any catalog data.
+            Extract all medicine names from this handwritten prescription. If a medicine name is partially readable, infer the most likely medicine name based on common pharmaceutical names. Only omit a medicine if it is completely unreadable. Return ONLY valid JSON in exactly this format: {\\"medicines\\":[\\"medicine name\\"]}. Do not return dosage, strength, form, frequency, confidence scores, product IDs, prices, images, cart quantities, or any catalog data. Do not include markdown, code fences, explanations, or any additional text.
             """;
 
     private final RestClient restClient;
@@ -70,6 +69,8 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
 
         try {
             String requestBody = objectMapper.writeValueAsString(buildRequest(image, contentType));
+            log.info("Sending ITI prescription AI request: endpointUrl={} headers={{Authorization=Bearer [REDACTED], Content-Type={}}} body={}",
+                    endpointUrl, MediaType.APPLICATION_JSON_VALUE, requestBody);
             String responseBody = restClient.post()
                     .uri(endpointUrl)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
@@ -179,7 +180,8 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
         Throwable cause = exception.getMostSpecificCause();
         boolean timeout = cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException;
         boolean connection = cause instanceof ConnectException;
-        String category = timeout ? "timeout" : connection ? "connection" : "network";
+        boolean prematureEof = cause instanceof EOFException;
+        String category = timeout ? "timeout" : connection ? "connection" : prematureEof ? "premature-eof" : "network";
         String type = cause == null ? "unknown" : cause.getClass().getSimpleName();
         log.warn("ITI prescription AI request failed: category={} causeType={}", category, type);
 
@@ -189,6 +191,10 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
         }
         if (connection) {
             return failure(HttpStatus.BAD_GATEWAY, "Could not connect to the AI provider");
+        }
+        if (prematureEof) {
+            return failure(HttpStatus.BAD_GATEWAY,
+                    "The AI provider closed the connection before returning a response. Please try again later");
         }
         return failure(HttpStatus.BAD_GATEWAY,
                 "A network error occurred while contacting the AI provider");
