@@ -1,11 +1,14 @@
 package com.example.dawanow.controller;
 
 import com.example.dawanow.dtos.request.CreateMedicineRequestRequest;
+import com.example.dawanow.dtos.request.ConfirmSelectionRequest;
 import com.example.dawanow.dtos.request.UpdateMedicineRequestStatusRequest;
 import com.example.dawanow.dtos.response.ApiResponse;
+import com.example.dawanow.dtos.response.ConfirmationResponse;
 import com.example.dawanow.dtos.response.MedicineRequestResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.service.MedicineRequestService;
+import com.example.dawanow.service.MedicineRequestConfirmationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -33,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MedicineRequestController {
 
     private final MedicineRequestService medicineRequestService;
+    private final MedicineRequestConfirmationService medicineRequestConfirmationService;
 
     @PostMapping
     @PreAuthorize("hasRole('CUSTOMER')")
@@ -68,6 +72,24 @@ public class MedicineRequestController {
             @Valid @RequestBody CreateMedicineRequestRequest request
     ) {
         return ResponseEntity.ok(ApiResponse.success("Medicine request created", medicineRequestService.createRequest(request)));
+    }
+
+    @PostMapping("/{requestId}/confirm")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(
+            summary = "Confirm selected offer items and create optimized pharmacy orders",
+            description = "Customer only. Chooses the minimum number of pharmacies that can fulfill every requested "
+                    + "item, then creates one order per selected pharmacy.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    public ResponseEntity<ApiResponse<ConfirmationResponse>> confirmSelection(
+            @PathVariable Long requestId,
+            @Valid @RequestBody ConfirmSelectionRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Selection confirmed and orders created",
+                medicineRequestConfirmationService.confirm(requestId, request)
+        ));
     }
 
     @GetMapping

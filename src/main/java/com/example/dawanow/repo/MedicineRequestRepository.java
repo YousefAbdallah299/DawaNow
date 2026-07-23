@@ -1,9 +1,13 @@
 package com.example.dawanow.repo;
 
 import com.example.dawanow.entity.MedicineRequest;
+import jakarta.persistence.LockModeType;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 
 public interface MedicineRequestRepository extends JpaRepository<MedicineRequest, Long> {
 
@@ -12,4 +16,8 @@ public interface MedicineRequestRepository extends JpaRepository<MedicineRequest
     Page<MedicineRequest> findDistinctByOffers_Pharmacy_Id(Long pharmacyId, Pageable pageable);
 
     boolean existsByIdAndOffers_Pharmacy_Id(Long requestId, Long pharmacyId);
+
+    @EntityGraph(attributePaths = {"customer", "items", "items.product"})
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<MedicineRequest> findDetailedById(Long id);
 }
