@@ -34,7 +34,7 @@ public class ProductEmbedding {
     private int dimensions;
 
     @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "MEDIUMBLOB")
     private byte[] embedding;
 
     @Column(name = "embedded_at", nullable = false)

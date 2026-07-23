@@ -3,13 +3,16 @@ package com.example.dawanow.service.ai;
 import com.example.dawanow.config.AiProperties;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -20,6 +23,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Component
+@Slf4j
 public class StudentBedrockGatewayClient {
 
     private static final String SYSTEM_PROMPT = """
@@ -48,6 +52,7 @@ public class StudentBedrockGatewayClient {
 
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
+                .version(HttpClient.Version.HTTP_1_1)
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(properties.getRequestTimeout());
@@ -66,18 +71,31 @@ public class StudentBedrockGatewayClient {
         if (texts == null || texts.isEmpty()) {
             return List.of();
         }
-        requireConfigured();
 
+        if ("ollama".equalsIgnoreCase(properties.getEmbeddingProvider())) {
+            return embedWithOllama(texts, inputType);
+        }
+        if ("student-bedrock-gateway".equalsIgnoreCase(properties.getEmbeddingProvider())) {
+            return embedWithStudentGateway(texts, inputType);
+        }
+        throw new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Unsupported embedding provider: " + properties.getEmbeddingProvider()
+        );
+    }
+
+    private List<float[]> embedWithOllama(List<String> texts, String inputType) {
+        List<String> prefixedTexts = texts.stream()
+                .map(text -> inputType + ": " + text)
+                .toList();
         Map<String, Object> request = Map.of(
-                "model_id", properties.getEmbeddingModel(),
-                "texts", texts,
-                "input_type", inputType
+                "model", properties.getEmbeddingModel(),
+                "input", prefixedTexts
         );
 
         try {
             String response = client.post()
-                    .uri(endpoint("/student/embed"))
-                    .header(HttpHeaders.AUTHORIZATION, bearerToken())
+                    .uri(ollamaEndpoint("/api/embed"))
                     .body(request)
                     .retrieve()
                     .body(String.class);
@@ -87,8 +105,33 @@ public class StudentBedrockGatewayClient {
         }
     }
 
+    private List<float[]> embedWithStudentGateway(List<String> texts, String inputType) {
+        requireStudentGatewayConfigured();
+
+        Map<String, Object> request = Map.of(
+                "model_id", properties.getEmbeddingModel(),
+                "texts", texts,
+                "input_type", inputType
+        );
+
+        try {
+            String requestBody = objectMapper.writeValueAsString(request);
+            String response = client.post()
+                    .uri(studentGatewayEndpoint("/student/embed"))
+                    .header(HttpHeaders.AUTHORIZATION, bearerToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentLength(requestBody.getBytes(StandardCharsets.UTF_8).length)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(String.class);
+            return parseEmbeddings(response, texts.size());
+        } catch (RestClientException | IllegalArgumentException | JacksonException exception) {
+            throw unavailable("Text embedding", properties.getEmbeddingModel(), exception);
+        }
+    }
+
     public GeneratedAnswer generate(String question, String language, String productContext) {
-        requireConfigured();
+        requireStudentGatewayConfigured();
 
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model_id", properties.getGenerationModel());
@@ -102,20 +145,24 @@ public class StudentBedrockGatewayClient {
         request.put("max_tokens", properties.getGenerationMaxTokens());
 
         try {
+            String requestBody = objectMapper.writeValueAsString(request);
             String response = client.post()
-                    .uri(endpoint("/student/chat"))
+                    .uri(studentGatewayEndpoint("/student/chat"))
                     .header(HttpHeaders.AUTHORIZATION, bearerToken())
-                    .body(request)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentLength(requestBody.getBytes(StandardCharsets.UTF_8).length)
+                    .body(requestBody)
                     .retrieve()
                     .body(String.class);
             return parseGeneratedAnswer(response);
-        } catch (RestClientException | IllegalArgumentException exception) {
+        } catch (RestClientException | IllegalArgumentException | JacksonException exception) {
+            log.warn("Catalog answer generation request failed: {}", exception.getMessage());
             throw unavailable("Catalog answer generation", properties.getGenerationModel(), exception);
         }
     }
 
     public String embeddingProvider() {
-        return properties.getProvider();
+        return properties.getEmbeddingProvider();
     }
 
     public String embeddingModel() {
@@ -359,12 +406,20 @@ public class StudentBedrockGatewayClient {
         return cleaned.trim();
     }
 
-    private URI endpoint(String path) {
-        String baseUrl = properties.getBaseUrl().trim().replaceAll("/+$", "");
+    private URI studentGatewayEndpoint(String path) {
+        return endpoint(properties.getBaseUrl(), path, "SBG_BASE_URL");
+    }
+
+    private URI ollamaEndpoint(String path) {
+        return endpoint(properties.getEmbeddingBaseUrl(), path, "AI_EMBEDDING_BASE_URL");
+    }
+
+    private URI endpoint(String configuredBaseUrl, String path, String settingName) {
+        String baseUrl = configuredBaseUrl.trim().replaceAll("/+$", "");
         URI uri = URI.create(baseUrl + path);
         if (!uri.isAbsolute() || uri.getScheme() == null
                 || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
-            throw new IllegalArgumentException("SBG_BASE_URL must be an absolute HTTP or HTTPS URL");
+            throw new IllegalArgumentException(settingName + " must be an absolute HTTP or HTTPS URL");
         }
         return uri;
     }
@@ -373,7 +428,7 @@ public class StudentBedrockGatewayClient {
         return "Bearer " + properties.getApiKey().trim();
     }
 
-    private void requireConfigured() {
+    private void requireStudentGatewayConfigured() {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE,
@@ -395,9 +450,12 @@ public class StudentBedrockGatewayClient {
     }
 
     private ResponseStatusException unavailable(String capability, String model, Exception cause) {
+        String provider = capability.startsWith("Text embedding")
+                ? properties.getEmbeddingProvider()
+                : properties.getProvider();
         return new ResponseStatusException(
                 HttpStatus.SERVICE_UNAVAILABLE,
-                capability + " is unavailable from provider '" + properties.getProvider()
+                capability + " is unavailable from provider '" + provider
                         + "' using model '" + model + "'",
                 cause
         );

@@ -31,7 +31,13 @@ public class AiProperties {
     private String apiKey = "";
 
     @NotBlank
-    private String embeddingModel = "amazon.titan-embed-text-v2:0:8k";
+    private String embeddingProvider = "ollama";
+
+    @NotBlank
+    private String embeddingBaseUrl = "http://host.docker.internal:11434";
+
+    @NotBlank
+    private String embeddingModel = "nomic-embed-text:latest";
 
     @NotBlank
     private String generationModel = "openai.gpt-oss-20b-1:0";
