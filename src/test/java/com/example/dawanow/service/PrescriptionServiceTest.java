@@ -27,7 +27,7 @@ class PrescriptionServiceTest {
     void setUp() {
         aiClient = mock(PrescriptionAiClient.class);
         matchingService = mock(PrescriptionProductMatchingService.class);
-        service = new PrescriptionService(aiClient, matchingService);
+        service = new PrescriptionService(aiClient, matchingService, new MedicineImageValidator());
     }
 
     @Test

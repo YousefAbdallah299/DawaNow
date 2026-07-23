@@ -2,12 +2,15 @@ package com.example.dawanow.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.example.dawanow.dtos.ai.ExtractedMedicine;
 import com.example.dawanow.dtos.response.PrescriptionMatchStatus;
+import com.example.dawanow.dtos.response.ProductResponse;
 import com.example.dawanow.entity.Product;
 import com.example.dawanow.entity.ProductTranslation;
+import com.example.dawanow.mapper.ProductMapper;
 import com.example.dawanow.repo.ProductRepository;
 import com.example.dawanow.repo.ProductTranslationRepository;
 import com.example.dawanow.util.MedicineTextNormalizer;
@@ -20,16 +23,19 @@ class PrescriptionProductMatchingServiceTest {
 
     private ProductRepository productRepository;
     private ProductTranslationRepository translationRepository;
+    private ProductMapper productMapper;
     private PrescriptionProductMatchingService service;
 
     @BeforeEach
     void setUp() {
         productRepository = mock(ProductRepository.class);
         translationRepository = mock(ProductTranslationRepository.class);
+        productMapper = mock(ProductMapper.class);
         service = new PrescriptionProductMatchingService(
                 productRepository,
                 translationRepository,
-                new MedicineTextNormalizer()
+                new MedicineTextNormalizer(),
+                productMapper
         );
     }
 
@@ -115,6 +121,31 @@ class PrescriptionProductMatchingServiceTest {
         assertThat(result.candidates()).singleElement();
     }
 
+    @Test
+    void returnsTopThreeProductResponsesWithExactMatchesBeforeSimilarProducts() {
+        Product exact = product(4L, "PANADOL 24 TABS", "PANADOL", null, "TABS");
+        Product similarOne = product(1L, "PANADOL EXTRA", "PANADOL EXTRA", null, "TABS");
+        Product similarTwo = product(2L, "PANADOL COLD", "PANADOL COLD", null, "TABS");
+        Product similarThree = product(3L, "PANADOL NIGHT", "PANADOL NIGHT", null, "TABS");
+        Product similarFour = product(5L, "PANADOL BABY", "PANADOL BABY", null, "SUSP");
+        when(productRepository.findAll()).thenReturn(
+                List.of(exact, similarOne, similarTwo, similarThree, similarFour)
+        );
+        when(productMapper.toResponse(any(Product.class))).thenAnswer(invocation -> {
+            Product product = invocation.getArgument(0);
+            return productResponse(product);
+        });
+
+        var exactResults = service.findTopProductsByMedicineName("Panadol", "en");
+        when(productRepository.findAll()).thenReturn(
+                List.of(similarOne, similarTwo, similarThree, similarFour)
+        );
+        var similarResults = service.findTopProductsByMedicineName("Panadol", "en");
+
+        assertThat(exactResults).extracting(ProductResponse::id).containsExactly(4L);
+        assertThat(similarResults).extracting(ProductResponse::id).containsExactly(1L, 2L, 3L);
+    }
+
     private Product product(Long id, String name, String productName, String strength, String form) {
         Product product = new Product();
         product.setId(id);
@@ -125,5 +156,12 @@ class PrescriptionProductMatchingServiceTest {
         product.setPrice(BigDecimal.TEN);
         product.setImageUrl("https://example.com/product.jpg");
         return product;
+    }
+
+    private ProductResponse productResponse(Product product) {
+        return new ProductResponse(
+                product.getId(), product.getName(), product.getProductName(), product.getStrength(), null,
+                product.getForm(), product.getPrice(), null, null, null, null, null, null, null, product.getImageUrl()
+        );
     }
 }

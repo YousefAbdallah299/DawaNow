@@ -80,9 +80,24 @@ class ItiPrescriptionAiClientTest {
         });
         assertThat(capturedOutput)
                 .contains("Sending ITI prescription AI request")
-                .contains(encodedImage)
-                .contains("Authorization=Bearer [REDACTED]")
-                .doesNotContain(API_KEY);
+                .contains("imageSize=4")
+                .doesNotContain(API_KEY)
+                .doesNotContain(encodedImage);
+        server.verify();
+    }
+
+    @Test
+    void sendsSingleMedicinePackagePromptAndReturnsOneName() throws Exception {
+        server.expect(requestTo(ENDPOINT_URL))
+                .andExpect(jsonPath("$.messages[0].text")
+                        .value(containsString("medicine package image")))
+                .andRespond(withSuccess(providerResponse("{\"medicines\":[\"Panadol Extra\"]}"),
+                        MediaType.APPLICATION_JSON));
+
+        var medicine = client.analyzeMedicineImage(new byte[]{1}, "image/jpeg", "en", API_KEY);
+
+        assertThat(medicine).isPresent();
+        assertThat(medicine.orElseThrow().name()).isEqualTo("Panadol Extra");
         server.verify();
     }
 

@@ -4,11 +4,13 @@ import com.example.dawanow.dtos.ai.ExtractedMedicine;
 import com.example.dawanow.dtos.response.PrescriptionCandidateResponse;
 import com.example.dawanow.dtos.response.PrescriptionMatchStatus;
 import com.example.dawanow.dtos.response.PrescriptionMedicineResponse;
+import com.example.dawanow.dtos.response.ProductResponse;
 import com.example.dawanow.entity.Product;
 import com.example.dawanow.entity.ProductTranslation;
 import com.example.dawanow.repo.ProductRepository;
 import com.example.dawanow.repo.ProductTranslationRepository;
 import com.example.dawanow.util.MedicineTextNormalizer;
+import com.example.dawanow.mapper.ProductMapper;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -28,6 +30,37 @@ public class PrescriptionProductMatchingService {
     private final ProductRepository productRepository;
     private final ProductTranslationRepository productTranslationRepository;
     private final MedicineTextNormalizer normalizer;
+    private final ProductMapper productMapper;
+
+    @Transactional(readOnly = true)
+    public List<ProductResponse> findTopProductsByMedicineName(String medicineName, String language) {
+        String normalizedName = normalizer.normalizeName(medicineName);
+        if (normalizedName.isEmpty()) {
+            return List.of();
+        }
+
+        ExtractedMedicine extracted = new ExtractedMedicine(
+                medicineName, medicineName, null, null, 1.0
+        );
+        List<CatalogProduct> catalog = loadCatalog(language);
+        List<CatalogProduct> exactMatches = catalog.stream()
+                .filter(product -> normalizedName.equals(normalizer.normalizeName(product.productName())))
+                .toList();
+        List<CatalogProduct> matches = exactMatches.isEmpty()
+                ? catalog.stream()
+                        .filter(product -> {
+                            String productName = normalizer.normalizeName(product.productName());
+                            return productName.contains(normalizedName) || normalizedName.contains(productName);
+                        })
+                        .toList()
+                : exactMatches;
+
+        return matches.stream()
+                .sorted(candidateComparator(extracted))
+                .limit(MAX_CANDIDATES)
+                .map(CatalogProduct::productResponse)
+                .toList();
+    }
 
     @Transactional(readOnly = true)
     public PrescriptionMedicineResponse match(ExtractedMedicine medicine, String language) {
@@ -150,7 +183,7 @@ public class PrescriptionProductMatchingService {
     private CatalogProduct toCatalogProduct(Product product) {
         return new CatalogProduct(
                 product.getId(), product.getName(), product.getProductName(), product.getStrength(),
-                product.getForm(), product.getPrice(), product.getImageUrl()
+                product.getForm(), product.getPrice(), product.getImageUrl(), productMapper.toResponse(product)
         );
     }
 
@@ -158,7 +191,7 @@ public class PrescriptionProductMatchingService {
         Product product = translation.getProduct();
         return new CatalogProduct(
                 product.getId(), translation.getName(), translation.getProductName(), translation.getStrength(),
-                translation.getForm(), product.getPrice(), product.getImageUrl()
+                translation.getForm(), product.getPrice(), product.getImageUrl(), productMapper.toResponse(translation)
         );
     }
 
@@ -169,7 +202,8 @@ public class PrescriptionProductMatchingService {
             String strength,
             String form,
             BigDecimal price,
-            String imageUrl
+            String imageUrl,
+            ProductResponse productResponse
     ) {
     }
 }

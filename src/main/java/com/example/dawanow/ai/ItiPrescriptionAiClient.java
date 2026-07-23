@@ -36,6 +36,10 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
     private static final String PROMPT = """
             Extract all medicine names from this handwritten prescription. If a medicine name is partially readable, infer the most likely medicine name based on common pharmaceutical names. Only omit a medicine if it is completely unreadable. Return ONLY valid JSON in exactly this format: {\\"medicines\\":[\\"medicine name\\"]}. Do not return dosage, strength, form, frequency, confidence scores, product IDs, prices, images, cart quantities, or any catalog data. Do not include markdown, code fences, explanations, or any additional text.
             """;
+    private static final String MEDICINE_IMAGE_PROMPT = """
+            Read the medicine name from this medicine package image. Return ONLY valid JSON in exactly this format: {\\"medicines\\":[\\"medicine name\\"]}.
+            Return zero or one medicine name. Omit it if the medicine name is completely unreadable. Do not return dosage, strength, form, frequency, confidence scores, product IDs, prices, images, cart quantities, or any catalog data. Do not include markdown, code fences, explanations, or any additional text.
+            """;
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -63,12 +67,27 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
 
     @Override
     public ExtractedPrescription analyze(byte[] image, String contentType, String language, String apiKey) {
+        return requestAnalysis(image, contentType, apiKey, PROMPT);
+    }
+
+    @Override
+    public java.util.Optional<ExtractedMedicine> analyzeMedicineImage(
+            byte[] image, String contentType, String language, String apiKey
+    ) {
+        ExtractedPrescription extracted = requestAnalysis(image, contentType, apiKey, MEDICINE_IMAGE_PROMPT);
+        if (extracted.medicines().size() > 1) {
+            throw invalidResponse();
+        }
+        return extracted.medicines().stream().findFirst();
+    }
+
+    private ExtractedPrescription requestAnalysis(byte[] image, String contentType, String apiKey, String prompt) {
         if (apiKey == null || apiKey.isBlank()) {
             throw failure(HttpStatus.BAD_REQUEST, "X-AI-Api-Key header is required");
         }
 
         try {
-            ObjectNode request = buildRequest(image, contentType);
+            ObjectNode request = buildRequest(image, contentType, prompt);
             String requestBody = objectMapper.writeValueAsString(request);
             log.info("Sending ITI prescription AI request: endpointUrl={} model={} imageSize={} contentType={}", endpointUrl, model, image.length, contentType);
             String responseBody = restClient.post()
@@ -94,12 +113,12 @@ public class ItiPrescriptionAiClient implements PrescriptionAiClient {
         }
     }
 
-    private ObjectNode buildRequest(byte[] image, String contentType) {
+    private ObjectNode buildRequest(byte[] image, String contentType, String prompt) {
         ObjectNode request = objectMapper.createObjectNode();
         request.put("model_id", model);
         ObjectNode message = request.putArray("messages").addObject();
         message.put("role", "user");
-        message.put("text", PROMPT);
+        message.put("text", prompt);
         ObjectNode imageNode = message.putArray("images").addObject();
         imageNode.put("format", imageFormat(contentType));
         imageNode.put("data_base64", Base64.getEncoder().encodeToString(image));

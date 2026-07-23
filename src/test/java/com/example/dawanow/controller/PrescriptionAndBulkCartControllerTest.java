@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.dawanow.dtos.response.PrescriptionAnalysisResponse;
 import com.example.dawanow.exception.PrescriptionAiUnavailableException;
 import com.example.dawanow.service.CartService;
+import com.example.dawanow.service.MedicineImageSearchService;
 import com.example.dawanow.service.PrescriptionService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,9 @@ class PrescriptionAndBulkCartControllerTest {
 
     @MockitoBean
     private CartService cartService;
+
+    @MockitoBean
+    private MedicineImageSearchService medicineImageSearchService;
 
     @Test
     void prescriptionAnalysisRequiresAuthentication() throws Exception {
@@ -150,6 +154,39 @@ class PrescriptionAndBulkCartControllerTest {
                 .andExpect(jsonPath(parameterPath).isNotEmpty())
                 .andExpect(jsonPath(parameterPath + ".in").value(hasItem("header")))
                 .andExpect(jsonPath(parameterPath + ".required").value(hasItem(false)));
+    }
+
+    @Test
+    void medicineImageSearchRequiresAuthentication() throws Exception {
+        mockMvc.perform(multipart("/api/v1/products/analyze-image").file(jpeg()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void returnsCatalogProductsForAuthenticatedMedicineImageSearch() throws Exception {
+        MockMultipartFile image = jpeg();
+        when(medicineImageSearchService.analyzeImage(any(), eq("en"), eq("valid-key")))
+                .thenReturn(List.of());
+
+        mockMvc.perform(multipart("/api/v1/products/analyze-image")
+                        .file(image)
+                        .param("lang", "en")
+                        .header("X-AI-Api-Key", "valid-key")
+                        .with(user("patient")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isArray());
+    }
+
+    @Test
+    void documentsMedicineImageSearchAiApiKeyHeader() throws Exception {
+        String parameterPath = "$.paths['/api/v1/products/analyze-image'].post.parameters"
+                + "[?(@.name == 'X-AI-Api-Key')]";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(parameterPath).isNotEmpty())
+                .andExpect(jsonPath(parameterPath + ".in").value(hasItem("header")));
     }
 
     @Test
