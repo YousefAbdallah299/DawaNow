@@ -1,14 +1,18 @@
 package com.example.dawanow.service;
 
 import com.example.dawanow.dtos.request.CreateMedicineRequestRequest;
-import com.example.dawanow.dtos.request.UpdateMedicineRequestStatusRequest;
 import com.example.dawanow.dtos.response.MedicineRequestResponse;
+import com.example.dawanow.dtos.response.MedicineRequestResultItemResponse;
+import com.example.dawanow.dtos.response.MedicineRequestResultResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.entity.*;
 import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.mapper.MedicineRequestMapper;
+import com.example.dawanow.mapper.MedicineRequestResultItemMapper;
+import com.example.dawanow.mapper.MedicineRequestResultMapper;
 import com.example.dawanow.repo.MedicineRequestRepository;
 import com.example.dawanow.repo.PharmacyAssignmentRepository;
+import com.example.dawanow.repo.PharmacyOfferItemRepository;
 import com.example.dawanow.repo.PharmacyRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,9 +23,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +43,9 @@ public class MedicineRequestService {
     private final AssignmentService assignmentService;
     private final PharmacyAssignmentRepository pharmacyAssignmentRepository;
     private final FileStorageService fileStorageService;
+    private final ProductService productService;
+    private final PharmacyOfferItemRepository pharmacyOfferItemRepository;
+    private final MedicineRequestResultItemMapper medicineRequestResultItemMapper;
 
     @Value("${dawanow.request.search-timeout-minutes:15}")
     private long searchTimeoutMinutes;
@@ -141,6 +151,47 @@ public class MedicineRequestService {
         return PaginatedResponse.from(
                 medicineRequestRepository.findAll(pageable).map(medicineRequestMapper::toResponse)
         );
+    }
+
+    @Transactional
+    public MedicineRequestResultResponse getMedicineRequestResult(Long medicineRequestId){
+        MedicineRequest medicineRequest = medicineRequestRepository.findById(medicineRequestId).orElseThrow(()->new ResourceNotFoundException("Medicine Request not found"));
+        List<MedicineRequestResultItemResponse> medicineRequestResultItemResponseList = new ArrayList<>();
+
+        BigDecimal totalPrice = BigDecimal.ZERO;
+
+        List<RequestItem> requestItems= medicineRequest.getItems();
+        List<PharmacyOffer> pharmacyOffers = medicineRequest.getOffers();
+
+        Map<Long, PharmacyOfferItem> bestOfferItems = new HashMap<>();
+
+        for (PharmacyOffer offer : pharmacyOffers) {
+            for (PharmacyOfferItem item : offer.getItems()) {
+
+                PharmacyOfferItem current =
+                        bestOfferItems.get(item.getRequestItem().getId());
+
+                if (current == null
+                        || (current.isAlternative() && !item.isAlternative())) {
+
+                    bestOfferItems.put(item.getRequestItem().getId(), item);
+                }
+            }
+        }
+
+        for(RequestItem requestItem : requestItems){
+           PharmacyOfferItem bestOffer = bestOfferItems.get(requestItem.getId());
+            MedicineRequestResultItemResponse medicineRequestResultItemResponse;
+            if(bestOffer == null){
+                medicineRequestResultItemResponse = MedicineRequestResultMapper.unavailable(requestItem.getProduct().getProductName());
+            }
+            else{
+               medicineRequestResultItemResponse = medicineRequestResultItemMapper.toResponse(bestOffer);
+               totalPrice = totalPrice.add(bestOffer.getProduct().getPrice().multiply(BigDecimal.valueOf(requestItem.getQuantity())));
+            }
+             medicineRequestResultItemResponseList.add(medicineRequestResultItemResponse);
+        }
+        return new MedicineRequestResultResponse(medicineRequestResultItemResponseList, totalPrice);
     }
 
     @Transactional(readOnly = true)

@@ -4,6 +4,7 @@ import com.example.dawanow.dtos.request.CreateMedicineRequestRequest;
 import com.example.dawanow.dtos.request.UpdateMedicineRequestStatusRequest;
 import com.example.dawanow.dtos.response.ApiResponse;
 import com.example.dawanow.dtos.response.MedicineRequestResponse;
+import com.example.dawanow.dtos.response.MedicineRequestResultResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
 import com.example.dawanow.service.FileStorageService;
 import com.example.dawanow.service.MedicineRequestService;
@@ -140,6 +141,40 @@ public class MedicineRequestController {
     ) {
         return ResponseEntity.ok(ApiResponse.success("Medicine requests fetched", medicineRequestService.getAllRequests(pageable)));
     }
+    @GetMapping("/{requestId}/result")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(
+            summary = "Get medicine request calculation result",
+            description = "Customer only. Calculates and returns the total price and item availability/alternatives for a specified medicine request.",
+            security = @SecurityRequirement(name = "basicAuth")
+    )
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    useReturnTypeSchema = true,
+                    description = "Medicine request result calculated and fetched successfully"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "Authentication is required"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "Access denied. Only customers can view medicine request results"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "Medicine request not found"
+            )
+    })
+    public ResponseEntity<ApiResponse<MedicineRequestResultResponse>> getRequestResult(
+            @PathVariable Long requestId
+    ) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Medicine request result fetched",
+                medicineRequestService.getMedicineRequestResult(requestId)));
+    }
+
 
     @GetMapping("/pharmacy/{pharmacyId}")
     @PreAuthorize("hasRole('PHARMACIST')")
@@ -178,6 +213,8 @@ public class MedicineRequestController {
                 medicineRequestService.getPharmacyRequests(pharmacyId, pageable)
         ));
     }
+
+
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('CUSTOMER', 'PHARMACIST', 'ADMIN')")
