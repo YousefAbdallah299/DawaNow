@@ -32,10 +32,6 @@ public class PharmacyOfferItem {
     @JoinColumn(name = "offer_id", nullable = false)
     private PharmacyOffer offer;
 
-    private Long quantity;
-
-    private BigDecimal unitPrice;
-
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "request_item_id", nullable = false)
     private RequestItem requestItem;
@@ -43,6 +39,8 @@ public class PharmacyOfferItem {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "product_id")
     private Product product;
+
+    boolean alternative=false;
 
 //    @Enumerated(EnumType.STRING)
 //    @Column(nullable = false)
