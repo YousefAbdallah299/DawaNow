@@ -48,3 +48,6 @@ public class PharmacyOfferItem {
 //    @Column(nullable = false)
 //    private OfferItemStatus status = OfferItemStatus.PENDING;
 }
+
+// select exist from pharmacyOfferItem  poi
+// group by list

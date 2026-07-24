@@ -31,6 +31,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,7 @@ public class MedicineRequestConfirmationService {
     private final CurrentUserProvider currentUserProvider;
     private final PharmacySelectionOptimizer selectionOptimizer;
 
+    @Transactional
     public ConfirmationResponse confirm(Long requestId, ConfirmSelectionRequest selection) {
         Customer customer = requireCurrentCustomer();
         MedicineRequest medicineRequest = medicineRequestRepository.findDetailedById(requestId)
@@ -58,22 +61,27 @@ public class MedicineRequestConfirmationService {
             throw new IllegalArgumentException("This medicine request has already been confirmed");
         }
 
-        LinkedHashSet<Long> selectedIds = new LinkedHashSet<>(selection.selectedOfferItemIds());
-        if (selectedIds.size() != selection.selectedOfferItemIds().size()) {
+        LinkedHashSet<Long> selectedIds = new LinkedHashSet<>(selection.selectedItemIds());
+        if (selectedIds.size() != selection.selectedItemIds().size()) {
             throw new IllegalArgumentException("Selected offer item IDs must be unique");
         }
 
-        List<PharmacyOfferItem> selectedItems = pharmacyOfferItemRepository.findByIdIn(selectedIds);
-        if (selectedItems.size() != selectedIds.size()) {
-            throw new ResourceNotFoundException("One or more selected offer items were not found");
+        List<PharmacyOfferItem> selectedOfferItems = pharmacyOfferItemRepository.findByRequestItemIdIn(selectedIds);
+
+        Set<Long> itemsWithOffers = selectedOfferItems.stream()
+                .map(item -> item.getRequestItem().getId())
+                .collect(Collectors.toSet());
+
+        if (itemsWithOffers.size() != selectedIds.size()) {
+            throw new ResourceNotFoundException("some request items do not have corresponding offers");
         }
 
-        validateSelectedItems(medicineRequest, selectedItems);
+        validateSelectedItems(medicineRequest, selectedOfferItems);
 
-        List<PharmacyOfferItem> optimizedItems = selectionOptimizer.optimize(selectedItems);
+        List<PharmacyOfferItem> optimizedItems = selectionOptimizer.optimize(selectedOfferItems);
         List<Order> orders = createOrders(medicineRequest, optimizedItems);
         updateOfferStatuses(medicineRequest.getId(), optimizedItems);
-        medicineRequest.setStatus(RequestStatus.FULFILLED);
+        medicineRequest.setStatus(RequestStatus.COMPLETED);
 
         orderRepository.saveAll(orders);
         orderRepository.flush();

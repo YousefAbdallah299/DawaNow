@@ -16,5 +16,5 @@ public interface PharmacyOfferItemRepository extends JpaRepository<PharmacyOffer
             "requestItem",
             "requestItem.product"
     })
-    List<PharmacyOfferItem> findByIdIn(Collection<Long> ids);
+    List<PharmacyOfferItem> findByRequestItemIdIn(Collection<Long> ids);
 }
