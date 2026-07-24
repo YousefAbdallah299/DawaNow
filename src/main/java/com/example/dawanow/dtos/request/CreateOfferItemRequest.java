@@ -7,12 +7,5 @@ import java.math.BigDecimal;
 
 public record CreateOfferItemRequest(@NotNull
                                         Long requestItemId,
-
-                                     @Positive
-                                        Long quantity,
-
-                                     @Positive
-                                     BigDecimal unitPrice,
-
                                      Long productId) {
 }
