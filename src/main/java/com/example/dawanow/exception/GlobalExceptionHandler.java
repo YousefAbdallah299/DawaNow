@@ -72,6 +72,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(ApiResponse.failure("File size exceeds the maximum allowed limit"));
     }
 
+    @ExceptionHandler(PrescriptionAiUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handlePrescriptionAiUnavailable(
+            PrescriptionAiUnavailableException exception
+    ) {
+        return ResponseEntity.status(exception.getStatus())
+                .body(ApiResponse.failure(exception.getMessage()));
+    }
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleConstraintViolation(ConstraintViolationException exception) {
         String message = exception.getConstraintViolations().stream()
