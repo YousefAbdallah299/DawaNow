@@ -46,6 +46,8 @@ public class SecurityConfig {
             "/api/v1/auth/verify"
     };
 
+    public static final String CATALOG_AI = "/api/v1/ai/catalog/**";
+
     public static final String[] SWAGGER = {
             "/v3/api-docs",
             "/v3/api-docs/**",
@@ -61,6 +63,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(PUBLIC_POST).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ai/catalog/index/status")
+                        .hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/ai/catalog/index/refresh")
+                        .hasRole("ADMIN")
+                        .requestMatchers(CATALOG_AI).permitAll()
                         .requestMatchers(SWAGGER).permitAll()
                         .anyRequest().authenticated()
                 ).sessionManagement(session ->
