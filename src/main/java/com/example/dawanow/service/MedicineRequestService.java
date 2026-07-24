@@ -4,22 +4,24 @@ import com.example.dawanow.dtos.request.CreateMedicineRequestRequest;
 import com.example.dawanow.dtos.request.UpdateMedicineRequestStatusRequest;
 import com.example.dawanow.dtos.response.MedicineRequestResponse;
 import com.example.dawanow.dtos.response.PaginatedResponse;
-import com.example.dawanow.entity.Customer;
-import com.example.dawanow.entity.MedicineRequest;
-import com.example.dawanow.entity.Pharmacist;
-import com.example.dawanow.entity.Pharmacy;
-import com.example.dawanow.entity.RequestStatus;
-import com.example.dawanow.entity.User;
-import com.example.dawanow.entity.UserRole;
+import com.example.dawanow.entity.*;
 import com.example.dawanow.exception.ResourceNotFoundException;
 import com.example.dawanow.mapper.MedicineRequestMapper;
 import com.example.dawanow.repo.MedicineRequestRepository;
+import com.example.dawanow.repo.PharmacyAssignmentRepository;
 import com.example.dawanow.repo.PharmacyRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -30,9 +32,94 @@ public class MedicineRequestService {
     private final PharmacyRepository pharmacyRepository;
     private final CurrentUserProvider currentUserProvider;
     private final MedicineRequestMapper medicineRequestMapper;
+    private final CartService cartService;
+    private final AssignmentService assignmentService;
+    private final PharmacyAssignmentRepository pharmacyAssignmentRepository;
+    private final FileStorageService fileStorageService;
 
-    public MedicineRequestResponse createRequest(CreateMedicineRequestRequest request) {
-        return null;
+    @Value("${dawanow.request.search-timeout-minutes:15}")
+    private long searchTimeoutMinutes;
+
+    @Transactional
+    public MedicineRequestResponse createRequest(CreateMedicineRequestRequest request,
+                                                 MultipartFile prescription) {
+        Customer customer = (Customer)currentUserProvider.get();
+        Cart cart = cartService.getCartEntity();
+
+
+        if (cart.getItems().isEmpty()) {
+            throw new IllegalArgumentException("Cart is empty");
+        }
+        MedicineRequest medicineRequest = new MedicineRequest();
+
+        medicineRequest.setCustomer(customer);
+
+        medicineRequest.setDeliveryLatitude(request.deliveryLatitude());
+
+        medicineRequest.setDeliveryLongitude(request.deliveryLongitude());
+
+        medicineRequest.setDeliveryAddress(request.deliveryAddress());
+
+
+
+        if (prescription != null && !prescription.isEmpty()) {
+            String url = fileStorageService.storePrescription(prescription);
+            medicineRequest.setPrescriptionUrl(url);
+
+        }
+
+        medicineRequest.setCreatedAt(LocalDateTime.now());
+        medicineRequest.setExpiresAt(LocalDateTime.now().plusMinutes(searchTimeoutMinutes));
+
+
+        for(CartItem cartItem :  cart.getItems()) {
+            RequestItem requestItem = new RequestItem();
+            requestItem.setProduct(cartItem.getProduct());
+            requestItem.setQuantity(cartItem.getQuantity());
+            requestItem.setRequest(medicineRequest);
+            medicineRequest.getItems().add(requestItem);
+        }
+
+        medicineRequestRepository.save(medicineRequest);
+
+        assignmentService.assignNearbyPharmacies(medicineRequest);
+
+//        medicineRequest.setStatus(RequestStatus.SEARCHING);
+
+        cartService.clearCart();
+
+        return medicineRequestMapper.toResponse(medicineRequest);
+    }
+
+    public MedicineRequest getEntity(Long medicineRequestId){
+        return medicineRequestRepository.findById(medicineRequestId).orElseThrow(()->new ResourceNotFoundException("Medicine Request not found"));
+    }
+
+    @Transactional
+    public PaginatedResponse<MedicineRequestResponse> getCurrentPharmacyRequests(Pageable pageable) {
+
+        Pharmacist pharmacist = (Pharmacist) currentUserProvider.get();
+
+        if (pharmacist.getPharmacy() == null) {
+            throw new ResourceNotFoundException("Current pharmacist is not assigned to any pharmacy");
+        }
+
+        Long pharmacyId = pharmacist.getPharmacy().getId();
+
+
+
+        return PaginatedResponse.from(
+                pharmacyAssignmentRepository.getPharmacyAssignmentsByPharmacy_Id(pharmacyId,pageable)
+                        .map(pharmacyAssignment -> medicineRequestMapper.toResponse(pharmacyAssignment.getMedicineRequest()))
+        );
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void expireRequests() {
+        List<MedicineRequest> medicineRequestList =  medicineRequestRepository.findByStatusAndExpiresAtBefore(RequestStatus.SEARCHING, LocalDateTime.now());
+        for (MedicineRequest medicineRequest : medicineRequestList) {
+            medicineRequest.setStatus(RequestStatus.EXPIRED);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -88,31 +175,33 @@ public class MedicineRequestService {
         return medicineRequestMapper.toResponse(medicineRequest);
     }
 
-    public MedicineRequestResponse updateRequestStatus(Long id, UpdateMedicineRequestStatusRequest request) {
-        MedicineRequest medicineRequest = findRequest(id);
-        User currentUser = currentUserProvider.get();
-        RequestStatus targetStatus = request.status();
 
-        if (targetStatus == null) {
-            throw new IllegalArgumentException("Request status is required");
-        }
-        if (!isApplicationAdmin(currentUser)) {
-            boolean ownsRequest = currentUser instanceof Customer
-                    && medicineRequest.getCustomer().getId().equals(currentUser.getId());
-            if (!ownsRequest) {
-                throw new AccessDeniedException("You are not allowed to update this medicine request");
-            }
-            if (targetStatus != RequestStatus.CANCELLED) {
-                throw new AccessDeniedException("Customers can only cancel their medicine requests");
-            }
-            if (medicineRequest.getStatus() != RequestStatus.PENDING) {
-                throw new IllegalArgumentException("Only pending medicine requests can be cancelled");
-            }
-        }
-
-        medicineRequest.setStatus(targetStatus);
-        return medicineRequestMapper.toResponse(medicineRequest);
-    }
+//
+//    public MedicineRequestResponse updateRequestStatus(Long id, UpdateMedicineRequestStatusRequest request) {
+//        MedicineRequest medicineRequest = findRequest(id);
+//        User currentUser = currentUserProvider.get();
+//        RequestStatus targetStatus = request.status();
+//
+//        if (targetStatus == null) {
+//            throw new IllegalArgumentException("Request status is required");
+//        }
+//        if (!isApplicationAdmin(currentUser)) {
+//            boolean ownsRequest = currentUser instanceof Customer
+//                    && medicineRequest.getCustomer().getId().equals(currentUser.getId());
+//            if (!ownsRequest) {
+//                throw new AccessDeniedException("You are not allowed to update this medicine request");
+//            }
+//            if (targetStatus != RequestStatus.CANCELLED) {
+//                throw new AccessDeniedException("Customers can only cancel their medicine requests");
+//            }
+//            if (medicineRequest.getStatus() != RequestStatus.PENDING) {
+//                throw new IllegalArgumentException("Only pending medicine requests can be cancelled");
+//            }
+//        }
+//
+//        medicineRequest.setStatus(targetStatus);
+//        return medicineRequestMapper.toResponse(medicineRequest);
+//    }
 
     private MedicineRequest findRequest(Long id) {
         return medicineRequestRepository.findById(id)
@@ -140,4 +229,5 @@ public class MedicineRequestService {
     private boolean isApplicationAdmin(User user) {
         return user.getRole() == UserRole.ADMIN;
     }
+
 }
