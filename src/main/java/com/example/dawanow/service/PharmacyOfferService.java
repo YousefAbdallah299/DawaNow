@@ -76,8 +76,6 @@ public class PharmacyOfferService {
         for (CreateOfferItemRequest itemDto : request.items()) {
             PharmacyOfferItem pharmacyOfferItem = new PharmacyOfferItem();
             pharmacyOfferItem.setOffer(offer);
-            pharmacyOfferItem.setQuantity(itemDto.quantity());
-            pharmacyOfferItem.setUnitPrice(itemDto.unitPrice());
 
             Product product = productRepository.findById(itemDto.productId())
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
@@ -90,15 +88,17 @@ public class PharmacyOfferService {
             }
             pharmacyOfferItem.setRequestItem(requestItem);
 
+            Long requestedProductId = requestItem.getProduct().getId();
+
             pharmacyOfferItem.setProduct(product);
+            if(!pharmacyOfferItem.getProduct().getId().equals(requestedProductId)){
+                pharmacyOfferItem.setAlternative(true);
+            }
             offer.getItems().add(pharmacyOfferItem);
 
-            totalOfferPrice = totalOfferPrice.add(
-                    itemDto.unitPrice()
-                            .multiply(BigDecimal.valueOf(itemDto.quantity()))
-            );
+
         }
-        offer.setTotalPrice(totalOfferPrice);
+        //offer.setTotalPrice(totalOfferPrice);
         pharmacyOfferRepository.save(offer);
         return pharmacyOfferMapper.toResponse(offer);
     }
